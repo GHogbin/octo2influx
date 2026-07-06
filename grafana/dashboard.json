@@ -1500,19 +1500,19 @@
           "type": "influxdb",
           "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
         },
-        "definition": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'",
+        "definition": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "electricity_import_tariff",
         "options": [],
-        "query": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'",
+        "query": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'",
         "refresh": 2,
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query",
-        "rawSql": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'"
+        "rawSql": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'"
       },
       {
         "current": {
@@ -1524,19 +1524,19 @@
           "type": "influxdb",
           "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
         },
-        "definition": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'",
+        "definition": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "electricity_export_tariff",
         "options": [],
-        "query": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'",
+        "query": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'",
         "refresh": 2,
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
         "sort": 0,
         "type": "query",
-        "rawSql": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'"
+        "rawSql": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'"
       },
       {
         "current": {
@@ -1548,19 +1548,19 @@
           "type": "influxdb",
           "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
         },
-        "definition": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'",
+        "definition": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "gas_tariff",
         "options": [],
-        "query": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'",
+        "query": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'",
         "refresh": 2,
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
         "sort": 0,
         "type": "query",
-        "rawSql": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'"
+        "rawSql": "SELECT DISTINCT (\"display_name\" || ' [' || right(\"tariff_code\", 1) || ']' || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'"
       }
     ]
   },

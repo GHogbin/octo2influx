@@ -144,6 +144,14 @@ def get_url_of_consumption(base_url: str, usage: confuse.templates.AttrDict) -> 
 def retrieve_paginated_data(
         api_key, url, from_iso8601, to_iso8601, page=None
 ):
+    if page is None and from_iso8601 >= to_iso8601:
+        # Nothing new to fetch: the last stored point is already at (or after)
+        # the requested `to` time. Octopus returns 400 for an empty/inverted
+        # range, so we skip the request and return no results.
+        logging.info(
+            f'       ... nothing new to retrieve '
+            f'(from {from_iso8601} >= to {to_iso8601}).')
+        return []
     args = {
         'period_from': from_iso8601,
         'period_to': to_iso8601,
