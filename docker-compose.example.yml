@@ -1,4 +1,3 @@
-version: '2'
 services:
   influx:
     image: "influxdb:3-core"
@@ -25,20 +24,21 @@ services:
       - "8181:8181"
     # --- Traefik integration (optional) ---
     # Serve the InfluxDB 3 API over HTTPS through Traefik. Uncomment the labels
-    # and the `networks` block below (see the shared "https" network at the
+    # and the `networks` block below (see the shared "proxy" network at the
     # bottom of this file). Point octo2influx's `influx_url` at the HTTPS host,
     # e.g. influx_url: "https://influx.example.com". You can drop the local
     # `ports:` mapping above once Traefik fronts it.
     #labels:
     #  - "traefik.enable=true"
+    #  - "traefik.docker.network=proxy"
     #  - "traefik.http.routers.octo2influx-influx.rule=Host(`influx.example.com`)"
-    #  - "traefik.http.routers.octo2influx-influx.entrypoints=websecure"
+    #  - "traefik.http.routers.octo2influx-influx.entrypoints=https"
     #  - "traefik.http.routers.octo2influx-influx.tls=true"
     #  - "traefik.http.routers.octo2influx-influx.tls.certresolver=letsencrypt"
     #  - "traefik.http.services.octo2influx-influx.loadbalancer.server.port=8181"
     #networks:
     #  - default
-    #  - https
+    #  - proxy
 
   grafana:
     image: "grafana/grafana"
@@ -60,19 +60,20 @@ services:
     # --- Traefik integration (optional) ---
     # Expose Grafana through an existing Traefik reverse proxy with automatic
     # TLS. Requires a running Traefik instance attached to the external
-    # "https" network defined at the bottom of this file. Uncomment the
+    # "proxy" network defined at the bottom of this file. Uncomment the
     # labels and the `networks` block below, then set your own Host() rule.
     # You can drop the local `ports:` mapping above once Traefik fronts it.
     #labels:
     #  - "traefik.enable=true"
+    #  - "traefik.docker.network=proxy"
     #  - "traefik.http.routers.octo2influx-grafana.rule=Host(`grafana.example.com`)"
-    #  - "traefik.http.routers.octo2influx-grafana.entrypoints=websecure"
+    #  - "traefik.http.routers.octo2influx-grafana.entrypoints=https"
     #  - "traefik.http.routers.octo2influx-grafana.tls=true"
     #  - "traefik.http.routers.octo2influx-grafana.tls.certresolver=letsencrypt"
     #  - "traefik.http.services.octo2influx-grafana.loadbalancer.server.port=3000"
     #networks:
     #  - default
-    #  - https
+    #  - proxy
 
   octo2influx:
     build:
@@ -97,9 +98,9 @@ volumes:
 # --- Traefik integration (optional) ---
 # Uncomment to reference the external network created/managed by your Traefik
 # stack, then attach services to it via their `networks:` block (see grafana).
-# Create it once with: docker network create https
+# Create it once with: docker network create proxy
 #networks:
-#  https:
+#  proxy:
 #    external: true
 
 

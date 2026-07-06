@@ -40,10 +40,10 @@ The [Docker Compose example](docker-compose.example.yml) starts InfluxDB 3 Core,
 
 To expose Grafana through an existing [Traefik](https://traefik.io/) reverse proxy (with automatic TLS), the [Docker Compose example](docker-compose.example.yml) includes an opt-in Traefik section. To enable it:
 
-1. Create the shared network once: `docker network create https`.
+1. Create the shared network once: `docker network create proxy`.
 2. In `docker-compose.yml`, uncomment the `networks:` block at the bottom of the file and the `labels:`/`networks:` block on the `grafana` service (and on the `influx` service if you want the InfluxDB 3 API served over HTTPS too).
 3. Replace `grafana.example.com` / `influx.example.com` in the `Host(...)` rules (and in `GF_SERVER_ROOT_URL`) with your own domains, and set the `entrypoints`/`certresolver` to match your Traefik configuration.
-4. The Traefik routers use the `websecure` entrypoint with TLS, so both endpoints are served over **HTTPS**. When routing InfluxDB through Traefik, set `influx_url` in `config.yaml` to the HTTPS host (e.g. `https://influx.example.com`).
+4. The Traefik routers use the `https` entrypoint with TLS, so both endpoints are served over **HTTPS**. When routing InfluxDB through Traefik, set `influx_url` in `config.yaml` to the HTTPS host (e.g. `https://influx.example.com`).
 5. Optionally remove the local `ports:` mappings once Traefik fronts the services.
 
 Once ready, you can simply run:
