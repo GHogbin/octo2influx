@@ -89,6 +89,11 @@ services:
     environment:
       FREQ: "1h"
 
+# Named volumes for persistent InfluxDB 3 and Grafana data.
+volumes:
+  influxdb3data:
+  grafanadata:
+
 # --- Traefik integration (optional) ---
 # Uncomment to reference the external network created/managed by your Traefik
 # stack, then attach services to it via their `networks:` block (see grafana).
