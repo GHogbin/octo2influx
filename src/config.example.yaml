@@ -6,13 +6,16 @@
 # and environement variable with prefix 'OCTO2INFLUX_'
 # e.g. timezone -> OCTO2INFLUX_TIMEZONE
 
-influx_org: "octo2influx"
-influx_bucket: "octo2influx/autogen"
+influx_database: "octo2influx"
 influx_tariff_measurement: "octopus-tariffs"
 influx_usage_measurement: "octopus-usage"
-influx_url: "http://localhost:8086"
-# See https://docs.influxdata.com/influxdb/cloud/admin/tokens/create-token/
-# Make sure it has write permissions on influx_bucket!
+# Use the plain http URL for a local instance, or the https endpoint when
+# InfluxDB 3 is served through a reverse proxy such as Traefik, e.g.:
+#   influx_url: "https://influx.example.com"
+influx_url: "http://localhost:8181"
+# Create an admin token for InfluxDB 3, e.g.:
+#   influxdb3 create token --admin
+# (with Docker Compose: docker compose exec influx influxdb3 create token --admin)
 influx_api_token: "MY_INFLUX_API_TOKEN"
 
 # See Octopus API's documentation at https://developer.octopus.energy/docs/api/

@@ -1,24 +1,44 @@
 version: '2'
 services:
   influx:
-    image: "influxdb:2.7"
+    image: "influxdb:3-core"
     restart: always
     logging:
         driver: "json-file"
         options:
             max-file: "5"
             max-size: "20m"
-   volumes:
-      - influxdb2data:/var/lib/influxdb2
+    # InfluxDB 3 Core has no env-based bootstrap. After the first start, create
+    # an admin token and put it into config.yaml as influx_api_token:
+    #   docker compose exec influx influxdb3 create token --admin
+    # The database is auto-created on first write, or create it explicitly:
+    #   docker compose exec influx influxdb3 create database octo2influx --token <token>
+    command:
+      - influxdb3
+      - serve
+      - --node-id=node0
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3
+    volumes:
+      - influxdb3data:/var/lib/influxdb3
     ports:
-      - "8086:8086"
-    environment:
-      - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      #- DOCKER_INFLUXDB_INIT_PASSWORD=
-      - DOCKER_INFLUXDB_INIT_ORG=octo2influx
-      - DOCKER_INFLUXDB_INIT_BUCKET=octo2influx/autogen
-      - DOCKER_INFLUXDB_INIT_RETENTION=80w
-      #- DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=
+      - "8181:8181"
+    # --- Traefik integration (optional) ---
+    # Serve the InfluxDB 3 API over HTTPS through Traefik. Uncomment the labels
+    # and the `networks` block below (see the shared "https" network at the
+    # bottom of this file). Point octo2influx's `influx_url` at the HTTPS host,
+    # e.g. influx_url: "https://influx.example.com". You can drop the local
+    # `ports:` mapping above once Traefik fronts it.
+    #labels:
+    #  - "traefik.enable=true"
+    #  - "traefik.http.routers.octo2influx-influx.rule=Host(`influx.example.com`)"
+    #  - "traefik.http.routers.octo2influx-influx.entrypoints=websecure"
+    #  - "traefik.http.routers.octo2influx-influx.tls=true"
+    #  - "traefik.http.routers.octo2influx-influx.tls.certresolver=letsencrypt"
+    #  - "traefik.http.services.octo2influx-influx.loadbalancer.server.port=8181"
+    #networks:
+    #  - default
+    #  - https
 
   grafana:
     image: "grafana/grafana"
@@ -34,6 +54,25 @@ services:
       # Used by graph and other places where we only show small intervals
       - GF_DATE_FORMATS_INTERVAL_HOUR=DD/MM HH:mm
       - GF_DATE_FORMATS_INTERVAL_DAY=DD/MM
+      # When served behind a reverse proxy such as Traefik, tell Grafana its
+      # public URL (uncomment and match the Host() rule below):
+      #- GF_SERVER_ROOT_URL=https://grafana.example.com
+    # --- Traefik integration (optional) ---
+    # Expose Grafana through an existing Traefik reverse proxy with automatic
+    # TLS. Requires a running Traefik instance attached to the external
+    # "https" network defined at the bottom of this file. Uncomment the
+    # labels and the `networks` block below, then set your own Host() rule.
+    # You can drop the local `ports:` mapping above once Traefik fronts it.
+    #labels:
+    #  - "traefik.enable=true"
+    #  - "traefik.http.routers.octo2influx-grafana.rule=Host(`grafana.example.com`)"
+    #  - "traefik.http.routers.octo2influx-grafana.entrypoints=websecure"
+    #  - "traefik.http.routers.octo2influx-grafana.tls=true"
+    #  - "traefik.http.routers.octo2influx-grafana.tls.certresolver=letsencrypt"
+    #  - "traefik.http.services.octo2influx-grafana.loadbalancer.server.port=3000"
+    #networks:
+    #  - default
+    #  - https
 
   octo2influx:
     build:
@@ -49,5 +88,13 @@ services:
       - "./config.yaml:/etc/octo2influx/config.yaml"
     environment:
       FREQ: "1h"
+
+# --- Traefik integration (optional) ---
+# Uncomment to reference the external network created/managed by your Traefik
+# stack, then attach services to it via their `networks:` block (see grafana).
+# Create it once with: docker network create https
+#networks:
+#  https:
+#    external: true
 
 

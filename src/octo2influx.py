@@ -1,14 +1,11 @@
 #!/usr/bin/python3
 
-from influxdb_client import InfluxDBClient, Point
-from influxdb_client.client import query_api
-from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client_3 import InfluxDBClient3, Point
 import dateutil.parser
 from datetime import date, datetime, timedelta, timezone
 import pytz
 import requests
 from urllib import parse
-from urllib3 import Retry
 import argparse
 import confuse
 from dataclasses import dataclass
@@ -76,12 +73,11 @@ params = {
     'tariffs': Parameter(_config_only, confuse.Sequence(confuse_tariff_template), '(**Config only**) List of Octopus tariffs to retrieve using the Octopus API.'),
 
     # Influx settings:
-    'influx_org': Parameter(str, str, 'InfluxDB 2.X organization name to store the data into.'),
-    'influx_bucket': Parameter(str, str, 'InfluxDB 2.X bucket name to store the data into (e.g. "mybucket/autogen").'),
-    'influx_tariff_measurement': Parameter(str, str, 'InfluxDB 2.X measurement name to store tariff data into.'),
-    'influx_usage_measurement': Parameter(str, str, 'InfluxDB 2.X measurement name to store consumption data into.'),
-    'influx_url': Parameter(str, str, 'URL of the InfluxDB 2.X instance to store the data into (e.g. "http://localhost:8086")'),
-    'influx_api_token': Parameter(_secret_unsafe_on_cmdline, str, '(**Config file or environment only**) The API Token to connect to the InfluxDB 2.x instance.'),
+    'influx_database': Parameter(str, str, 'InfluxDB 3 database name to store the data into (e.g. "octo2influx").'),
+    'influx_tariff_measurement': Parameter(str, str, 'InfluxDB 3 table (measurement) name to store tariff data into.'),
+    'influx_usage_measurement': Parameter(str, str, 'InfluxDB 3 table (measurement) name to store consumption data into.'),
+    'influx_url': Parameter(str, str, 'URL of the InfluxDB 3 instance to store the data into (e.g. "http://localhost:8181")'),
+    'influx_api_token': Parameter(_secret_unsafe_on_cmdline, str, '(**Config file or environment only**) The API Token to connect to the InfluxDB 3 instance.'),
 }
 
 argparse_description = '''
@@ -288,67 +284,73 @@ def datetime_to_days_ago(days_ago: int) -> datetime:
     return datetime_days_ago(days_ago, datetime.max.time())
 
 
-def query_last_datetime(query_api: query_api,
-                        base_query: str, from_max_days_ago: int) -> datetime:
-    """Return the timestamp of the most recent point from InfluxDB.
+def query_last_datetime(client: InfluxDBClient3,
+                        sql: str, from_max_days_ago: int) -> datetime:
+    """Return the timestamp of the most recent point matching the SQL query.
 
-    The function will look for data at most from_max_days_ago old. If none is found,
-    it will return the timestamp from from_max_days_ago.
+    The SQL query must select a single column aliased `last_time` (e.g.
+    MAX("time")). The function will look for data at most from_max_days_ago old.
+    If none is found (or the table does not exist yet), it returns the
+    timestamp from from_max_days_ago.
     """
-    query = base_query + '''
-        |> keep(columns: ["_time"])
-        |> sort(columns: ["_time"], desc: false)
-        |> last(column: "_time")
-        |> yield(name: "last_tstamp")
-    '''
-    tables = query_api.query(query)
-    results = tables.to_values(columns=['_time'])
-    if results:
-        return results[-1][0]
-    else:
+    try:
+        result = client.query(query=sql, language="sql")
+    except Exception as e:
+        # The table might not exist yet, e.g. on the very first run:
+        logging.debug(f"Query failed, assuming no existing data: {e}")
         return datetime_from_days_ago(from_max_days_ago)
 
+    # client.query() may return a pyarrow.Table or a stream reader:
+    table = result.read_all() if hasattr(result, "read_all") else result
+    last_dt = table.column("last_time")[0].as_py() if table.num_rows else None
+    if last_dt is None:
+        return datetime_from_days_ago(from_max_days_ago)
+    # InfluxDB returns UTC timestamps; make sure they are timezone-aware:
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    return last_dt
 
-def tariff_last_datetime(query_api: query_api,
-                         influx_bucket: str, from_max_days_ago: int,
+
+def tariff_last_datetime(client: InfluxDBClient3,
+                         from_max_days_ago: int,
                          influx_measurement: str, energy_type: str,
                          price_type: str,
                          tariff_code: str) -> datetime:
-    """Return the timestamp of the most recent point from InfluxDB.
+    """Return the timestamp of the most recent tariff point from InfluxDB.
 
     The function will look for data at most from_max_days_ago old. If none is found,
     it will return the timestamp from from_max_days_ago.
     """
-    base_query = f'''
-        from(bucket: "{influx_bucket}")
-        |> range(start: -{from_max_days_ago}d)
-        |> filter(fn: (r) => r["_measurement"] == "{influx_measurement}")
-        |> filter(fn: (r) => r["energy_type"] == "{energy_type}")
-        |> filter(fn: (r) => r["price_type"] == "{price_type}")
-        |> filter(fn: (r) => r["tariff_code"] == "{tariff_code}")
+    sql = f'''
+        SELECT MAX("time") AS last_time
+        FROM "{influx_measurement}"
+        WHERE "energy_type" = '{energy_type}'
+          AND "price_type" = '{price_type}'
+          AND "tariff_code" = '{tariff_code}'
+          AND "time" >= now() - INTERVAL '{from_max_days_ago} days'
     '''
-    return query_last_datetime(query_api, base_query, from_max_days_ago)
+    return query_last_datetime(client, sql, from_max_days_ago)
 
 
-def consumption_last_iso8601(query_api: query_api,
-                             influx_bucket: str, from_max_days_ago: int,
-                             influx_measurement: str, energy_type: str,
+def consumption_last_iso8601(client: InfluxDBClient3,
+                             from_max_days_ago: int,
+                             influx_measurement: str,
                              direction: str,
                              meter_point: str, meter_serial: str) -> str:
-    """Return the timestamp of the most recent point from InfluxDB, in ISO8601 format.
+    """Return the timestamp of the most recent consumption point, in ISO8601 format.
 
     The function will look for data at most from_max_days_ago old. If none is found,
     it will return the timestamp from from_max_days_ago.
     """
-    base_query = f'''
-        from(bucket: "{influx_bucket}")
-        |> range(start: -{from_max_days_ago}d)
-        |> filter(fn: (r) => r["_measurement"] == "{influx_measurement}")
-        |> filter(fn: (r) => r["direction"] == "{direction}")
-        |> filter(fn: (r) => r["meter_point"] == "{meter_point}")
-        |> filter(fn: (r) => r["meter_serial"] == "{meter_serial}")
+    sql = f'''
+        SELECT MAX("time") AS last_time
+        FROM "{influx_measurement}"
+        WHERE "direction" = '{direction}'
+          AND "meter_point" = '{meter_point}'
+          AND "meter_serial" = '{meter_serial}'
+          AND "time" >= now() - INTERVAL '{from_max_days_ago} days'
     '''
-    last_dt = query_last_datetime(query_api, base_query, from_max_days_ago)
+    last_dt = query_last_datetime(client, sql, from_max_days_ago)
     return iso8601_from_datetime(last_dt)
 
 
@@ -427,11 +429,9 @@ if __name__ == "__main__":
     except confuse.exceptions.NotFoundError:
         from_days_ago = None
 
-    client = InfluxDBClient(url=cfg['influx_url'],
-                            token=cfg['influx_api_token'], org=cfg['influx_org'],
-                            retries=Retry(connect=5, read=4, backoff_factor=0.7))
-    write_api = client.write_api(write_options=SYNCHRONOUS)
-    query_api = client.query_api()
+    client = InfluxDBClient3(host=cfg['influx_url'],
+                             token=cfg['influx_api_token'],
+                             database=cfg['influx_database'])
 
     # Get consumption
     logging.info('=== Retrieving consumption...')
@@ -441,8 +441,8 @@ if __name__ == "__main__":
 
         if from_days_ago is None:
             from_iso8601 = consumption_last_iso8601(
-                query_api, cfg['influx_bucket'], cfg['from_max_days_ago'],
-                cfg['influx_usage_measurement'], usage.energy_type, usage.direction,
+                client, cfg['from_max_days_ago'],
+                cfg['influx_usage_measurement'], usage.direction,
                 usage.meter_point, usage.meter_serial)
 
         logging.info(f'====== Retrieving {usage.energy_type} {usage.direction} ({usage.meter_point}) from Octopus...')
@@ -465,7 +465,8 @@ if __name__ == "__main__":
         if cfg['loglevel'] == 'DEBUG':
             logging.debug("\n" + "\n".join([p.to_line_protocol() for p in points]))
 
-        write_api.write(bucket=cfg['influx_bucket'], record=points)
+        if points:
+            client.write(record=points)
         logging.info(
             f'       ... {len(points)} points written to Influx.')
 
@@ -477,7 +478,7 @@ if __name__ == "__main__":
 
             if from_days_ago is None:
                 from_dt = tariff_last_datetime(
-                    query_api, cfg['influx_bucket'], cfg['from_max_days_ago'],
+                    client, cfg['from_max_days_ago'],
                     cfg['influx_tariff_measurement'], tariff.energy_type, price_type, tariff.tariff_code)
                 from_iso8601 = iso8601_from_datetime(from_dt)
 
@@ -503,7 +504,8 @@ if __name__ == "__main__":
             if cfg['loglevel'] == 'DEBUG':
                 logging.debug("\n" + "\n".join([p.to_line_protocol() for p in points]))
 
-            write_api.write(bucket=cfg['influx_bucket'], record=points)
+            if points:
+                client.write(record=points)
             logging.info(
                 f'       ... {len(points)} points written to Influx '
                 '(including any extra points for easier querying and better charting).')
