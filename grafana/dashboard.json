@@ -107,42 +107,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "title": "Electricity Imported",
@@ -305,77 +274,51 @@
       "pluginVersion": "10.0.1",
       "targets": [
         {
-          "alias": "Usage",
           "datasource": {
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "30m"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "linear"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"kWh\") AS \"export_kWh\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "rawQuery": true,
           "refId": "export",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "mean"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"kWh\") AS \"export_kWh\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
         },
         {
           "datasource": {
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "hide": false,
-          "query": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"p/kWh_inc_vat\") / 100.0 AS \"export-unit-rates_£/kWh\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'\n  AND \"price_type\" = 'standard-unit-rates'\n  AND \"tariff_code\" = '${electricity_export_tariff}'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "export_unit_rate",
-          "rawQuery": true
+          "rawSql": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"p/kWh_inc_vat\") / 100.0 AS \"export-unit-rates_£/kWh\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'\n  AND \"price_type\" = 'standard-unit-rates'\n  AND \"tariff_code\" = '${electricity_export_tariff}'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true,
+          "hide": false
         },
         {
           "datasource": {
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "hide": false,
-          "query": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"kWh\") AS \"import_kWh\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "import",
-          "rawQuery": true
+          "rawSql": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"kWh\") AS \"import_kWh\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true,
+          "hide": false
         },
         {
           "datasource": {
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "hide": false,
-          "query": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"p/kWh_inc_vat\") / 100.0 AS \"import-unit-rates_£/kWh\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'\n  AND \"price_type\" = 'standard-unit-rates'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "import_unit_rate",
-          "rawQuery": true
+          "rawSql": "SELECT date_bin(INTERVAL '30 minutes', time) AS time,\n       avg(\"p/kWh_inc_vat\") / 100.0 AS \"import-unit-rates_£/kWh\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'\n  AND \"price_type\" = 'standard-unit-rates'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true,
+          "hide": false
         }
       ],
       "title": "Electricity Import/Export",
@@ -447,42 +390,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "title": "Electricity Exported",
@@ -571,42 +483,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${electricity_import_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Usage cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 + SUM(r.standing) / 48.0 / 100.0 AS \"Total cost\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${electricity_import_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Usage cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 + SUM(r.standing) / 48.0 / 100.0 AS \"Total cost\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "title": "Electricity Import Cost",
@@ -710,42 +591,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'\n    AND \"tariff_code\" = '${electricity_export_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Export revenue\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 - SUM(r.standing) / 48.0 / 100.0 AS \"Net revenue\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'\n    AND \"tariff_code\" = '${electricity_export_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Export revenue\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 - SUM(r.standing) / 48.0 / 100.0 AS \"Net revenue\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "title": "Electricity Export Revenue",
@@ -846,42 +696,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1028,53 +847,23 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "hide": false,
-          "query": "SELECT date_bin(INTERVAL '1 day', time) AS time,\n       SUM(\"kWh\") AS \"export\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "Export",
-          "rawQuery": true
+          "rawSql": "SELECT date_bin(INTERVAL '1 day', time) AS time,\n       SUM(\"kWh\") AS \"export\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true,
+          "hide": false
         },
         {
-          "alias": "Usage",
           "datasource": {
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "24h"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "linear"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT date_bin(INTERVAL '1 day', time) AS time,\n       SUM(\"kWh\") AS \"import\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "rawQuery": true,
           "refId": "Import",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT date_bin(INTERVAL '1 day', time) AS time,\n       SUM(\"kWh\") AS \"import\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1147,42 +936,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT SUM(\"kWh\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1272,42 +1030,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${electricity_import_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Usage cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 + SUM(r.standing) / 48.0 / 100.0 AS \"Total cost\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${electricity_import_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Usage cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 + SUM(r.standing) / 48.0 / 100.0 AS \"Total cost\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1412,42 +1139,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'\n    AND \"tariff_code\" = '${electricity_export_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Export revenue\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 - SUM(r.standing) / 48.0 / 100.0 AS \"Net revenue\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "WITH usage AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         avg(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export' AND $__timeFilter(time)\n  GROUP BY t\n),\nrates AS (\n  SELECT date_bin_gapfill(INTERVAL '30 minutes', time) AS t,\n         locf(avg(\"p/kWh_inc_vat\")) AS unit_rate,\n         locf(avg(\"p/day_inc_vat\")) AS standing\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'\n    AND \"tariff_code\" = '${electricity_export_tariff}' AND $__timeFilter(time)\n  GROUP BY t\n)\nSELECT\n  SUM(r.standing) / 48.0 / 100.0 AS \"Standing charge cost\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 AS \"Export revenue\",\n  SUM(coalesce(u.kwh, 0.0) * r.unit_rate) / 100.0 - SUM(r.standing) / 48.0 / 100.0 AS \"Net revenue\"\nFROM rates r\nLEFT JOIN usage u ON r.t = u.t",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1549,42 +1245,11 @@
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "$__interval"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "none"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT SUM(\"m3\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import' AND $__timeFilter(time)",
-          "rawQuery": true,
           "refId": "A",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT SUM(\"m3\") AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import' AND $__timeFilter(time)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1697,47 +1362,15 @@
       "pluginVersion": "9.5.1",
       "targets": [
         {
-          "alias": "Usage",
           "datasource": {
             "type": "influxdb",
             "uid": "c8229740-0e9a-4f46-a107-27c0a34b86fb"
           },
-          "groupBy": [
-            {
-              "params": [
-                "24h"
-              ],
-              "type": "time"
-            },
-            {
-              "params": [
-                "linear"
-              ],
-              "type": "fill"
-            }
-          ],
-          "measurement": "electricity",
-          "orderByTime": "ASC",
-          "policy": "default",
-          "query": "SELECT date_bin(INTERVAL '1 day', time) AS time,\n       SUM(\"m3\") AS \"import\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "rawQuery": true,
           "refId": "Import",
-          "resultFormat": "time_series",
-          "select": [
-            [
-              {
-                "params": [
-                  "consumption"
-                ],
-                "type": "field"
-              },
-              {
-                "params": [],
-                "type": "sum"
-              }
-            ]
-          ],
-          "tags": []
+          "rawSql": "SELECT date_bin(INTERVAL '1 day', time) AS time,\n       SUM(\"m3\") AS \"import\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import' AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true
         }
       ],
       "timeFrom": "$HistoryDuration",
@@ -1878,7 +1511,8 @@
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
         "sort": 1,
-        "type": "query"
+        "type": "query",
+        "rawSql": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'import'"
       },
       {
         "current": {
@@ -1901,7 +1535,8 @@
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
         "sort": 0,
-        "type": "query"
+        "type": "query",
+        "rawSql": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity' AND \"direction\" = 'export'"
       },
       {
         "current": {
@@ -1924,7 +1559,8 @@
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
         "sort": 0,
-        "type": "query"
+        "type": "query",
+        "rawSql": "SELECT DISTINCT (\"display_name\" || '#@#' || \"tariff_code\") AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas' AND \"direction\" = 'import'"
       }
     ]
   },
