@@ -112,7 +112,12 @@ The priority from highest to lowest is: environment, command line, config file.
 
 The bundled dashboard ([grafana/dashboard.json](grafana/dashboard.json)) was originally written for InfluxDB 2 and the **Flux** query language. InfluxDB 3 does *not* support Flux — it uses **SQL** (and InfluxQL). Its panels and template-variable queries have now been **converted to SQL**, so the only remaining step is to point Grafana at InfluxDB 3:
 
-- Configure the Grafana InfluxDB data source to query InfluxDB 3 using **SQL** (FlightSQL), pointing at your `octo2influx` database and admin token, then import [grafana/dashboard.json](grafana/dashboard.json).
+- Add an **InfluxDB** data source and set **Query language = SQL**.
+- **URL/Host:** `http://influx:8181` (the Docker Compose service name, not `localhost`).
+- **Database:** `octo2influx`; **Token:** your InfluxDB 3 admin token.
+- **Secure connection (TLS): OFF** for the plain `http://influx:8181` endpoint. (Leaving TLS on against a non-TLS server gives `flightsql: ... first record does not look like a TLS handshake`.) Turn it **on** only if you front InfluxDB with HTTPS via Traefik.
+- Import [grafana/dashboard.json](grafana/dashboard.json) and select this data source. The dashboard references a fixed data-source UID, so either re-select your data source on import, or set your data source's UID to match (or provision it).
+
 
 The queries use the `$__timeFilter(time)` macro and `date_bin()` for time bucketing. For reference, the *total electricity imported* over the dashboard time range is:
 
