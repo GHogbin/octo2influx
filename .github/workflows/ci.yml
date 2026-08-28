@@ -28,7 +28,7 @@ jobs:
       - name: Compile
         run: python -m compileall -q src tests
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q -m "not integration"
 
   container:
     runs-on: ubuntu-latest
@@ -43,7 +43,6 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,36 +51,43 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Start InfluxDB
-        run: >-
-          docker run --detach
-          --name octo2influx-integration-influx
-          --publish 8181:8181
-          influxdb:3.11.2-core
-          influxdb3 serve
-          --node-id=ci
-          --object-store=memory
       - name: Bootstrap InfluxDB
         shell: bash
         run: |
+          token="apiv3_$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          printf '{"token":"%s","name":"ci-admin","description":"CI integration token"}\n' \
+            "$token" > "$RUNNER_TEMP/influx-admin-token.json"
+          chmod 600 "$RUNNER_TEMP/influx-admin-token.json"
+
+          docker run --detach \
+            --name octo2influx-integration-influx \
+            --publish 8181:8181 \
+            --volume "$RUNNER_TEMP/influx-admin-token.json:/run/secrets/admin-token:ro" \
+            influxdb:3.11.2-core \
+            influxdb3 serve \
+            --node-id=ci \
+            --object-store=memory \
+            --admin-token-file=/run/secrets/admin-token
+
+          ready=false
           for attempt in {1..30}; do
-            code="$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8181/ping)"
-            if [[ "$code" == "200" || "$code" == "401" ]]; then
+            if curl --fail --silent \
+                --header "Authorization: Bearer ${token}" \
+                http://localhost:8181/health >/dev/null; then
+              ready=true
               break
             fi
             sleep 1
           done
+          if [[ "$ready" != "true" ]]; then
+            docker logs octo2influx-integration-influx
+            exit 1
+          fi
 
-          token="$(
-            curl --fail --silent --show-error \
-              --request POST \
-              http://localhost:8181/api/v3/configure/token/admin |
-              python -c 'import json,sys; print(json.load(sys.stdin)["token"])'
-          )"
-          echo "::add-mask::$token"
           curl --fail --silent --show-error \
             --request POST \
-            --header "Authorization: Bearer $token" \
+            --header "Authorization: Bearer ${token}" \
             --header "Content-Type: application/json" \
             --data '{"db":"octo2influx_test"}' \
             http://localhost:8181/api/v3/configure/database
@@ -91,3 +97,6 @@ jobs:
           echo "TEST_INFLUX_DATABASE=octo2influx_test" >> "$GITHUB_ENV"
       - name: Run InfluxDB integration tests
         run: python -m pytest -q -m integration
+      - name: Show InfluxDB logs
+        if: failure()
+        run: docker logs octo2influx-integration-influx
