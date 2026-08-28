@@ -1,65 +1,203 @@
 # octo2influx
 
-Download Octopus Energy electricity import, electricity export, gas usage, and
-tariff data into InfluxDB 3 and visualise it in Grafana.
+Import Octopus Energy electricity, export, gas, and tariff data into InfluxDB 3
+and analyse it in Grafana.
 
 ![Grafana dashboard overview](images/grafana-dashboard-overview.png)
 
-The importer retrieves configured meters and tariffs from the
-[Octopus API](https://developer.octopus.energy/docs/api/), writes them as
-timestamped InfluxDB measurements, and supports incremental synchronisation or
-explicit historical backfills. The dashboard can compare import costs and
-export revenue across configured tariffs.
+octo2influx provides:
+
+- incremental, replay-safe ingestion with an explicit checkpoint per stream;
+- optional meter and tariff discovery from an Octopus account;
+- single-rate, Economy 7 day/night, and configurable multi-rate tariffs;
+- raw usage and tariff measurements that remain backward compatible;
+- materialised usage costs and one standing charge per supply per local day;
+- isolation between streams, with failed streams retried without blocking others;
+- a provisioned Grafana SQL datasource, dashboard, and ingestion-health panel.
 
 ![Grafana Agile tariff example](images/grafana-example-agile.png)
 
 ## Docker Compose quick start
 
-The example stack runs InfluxDB 3 Core, Grafana, and the importer. Its published
-ports bind to `127.0.0.1` and Grafana anonymous access is disabled by default.
+The example stack pins InfluxDB 3 Core and Grafana, binds their ports to
+`127.0.0.1`, disables anonymous Grafana access, and provisions the dashboard.
 
-1. Create local configuration files:
+1. Create local files:
 
    ```shell
    cp docker-compose.example.yml docker-compose.yml
    cp src/config.example.yaml config.yaml
+   cp .env.example .env
    ```
 
-2. Edit `config.yaml`:
-
-   - replace all meter, tariff, and token placeholders;
-   - set `influx_url` to `http://influx:8181`;
-   - keep only the usage streams and tariffs you need.
-
-3. Start InfluxDB and create an admin token:
+2. Start InfluxDB and create its administrator token:
 
    ```shell
    docker compose up -d influx
    docker compose exec influx influxdb3 create token --admin
    ```
 
-4. Put the generated token in `config.yaml`, then create the database:
+3. Put the token in both locations:
+
+   - `config.yaml` as `influx_api_token`;
+   - `.env` as `INFLUXDB_TOKEN`, for the provisioned Grafana datasource.
+
+   InfluxDB 3 Core tokens are administrator tokens. Keep both files private.
+
+4. Create the database:
 
    ```shell
    docker compose exec influx influxdb3 create database octo2influx --token YOUR_TOKEN
    ```
 
-   InfluxDB 3 Core requires the database to be created explicitly before the
-   importer can query or write it.
-
-5. Start the complete stack:
+5. Configure Octopus data in `config.yaml` using either account discovery or
+   explicit meter/tariff entries, then start the stack:
 
    ```shell
    docker compose up -d
    docker compose logs -f octo2influx
    ```
 
-Grafana is available at <http://localhost:3000>. On first login, use Grafana's
-default administrator credentials and change the password when prompted.
+Grafana is available at <http://localhost:3000>. Sign in with Grafana's default
+administrator credentials and change the password when prompted. The InfluxDB
+SQL datasource and dashboard are provisioned automatically.
 
-The Compose file pins tested InfluxDB and Grafana versions. Override
-`INFLUXDB_TAG`, `GRAFANA_TAG`, `INFLUX_PORT`, or `GRAFANA_PORT` through a local
-`.env` file when required.
+The importer runs hourly (`FREQ`) and retries failed runs after five minutes
+(`RETRY_FREQ`). Container health becomes healthy only after a successful sync.
+
+## Configure Octopus data
+
+Copy [`src/config.example.yaml`](src/config.example.yaml) and never commit the
+result: it contains account identifiers and API tokens.
+
+### Account discovery
+
+Set an Octopus account number and remove unused placeholder entries:
+
+```yaml
+account_number: "A-XXXXXXXX"
+usage: []
+tariffs: []
+```
+
+The authenticated account endpoint discovers active MPANs/MPRNs, meter serials,
+import/export direction, and tariff agreements. Product metadata and applicable
+rate endpoints are resolved without sending the account API key to public tariff
+endpoints.
+
+Explicit `usage` and `tariffs` entries can be mixed with discovery. Explicit
+entries take precedence; discovery fills missing streams. Set
+`discover_historical_tariffs: true` to include previous agreements, including
+non-contiguous periods using the same tariff code.
+
+Octopus does not expose whether a discovered gas meter returns `m3` or `kWh`, so
+set `discovered_gas_unit` correctly.
+
+### Explicit configuration
+
+Without `account_number`, keep one entry per meter:
+
+```yaml
+usage:
+  - energy_type: electricity
+    direction: import
+    meter_point: "YOUR_MPAN"
+    meter_serial: "YOUR_SERIAL"
+    unit: kWh
+```
+
+Tariffs can optionally define agreement bounds, payment method, and endpoint
+types:
+
+```yaml
+tariffs:
+  - energy_type: electricity
+    direction: import
+    product_code: "YOUR-PRODUCT"
+    tariff_code: "E-2R-YOUR-PRODUCT-C"
+    full_name: "Example Economy 7"
+    display_name: "Example Economy 7"
+    description: ""
+    rate_types:
+      - day-unit-rates
+      - night-unit-rates
+      - standing-charges
+```
+
+### Multi-rate schedules
+
+Dual- and multi-rate endpoints provide their prices but not a universal schedule
+for deciding which register applies to each interval. Configure the tariff's
+local-time schedule before costs are materialised:
+
+```yaml
+tariff_schedules:
+  "E-2R-YOUR-PRODUCT-C":
+    timezone: Europe/London
+    default_price_type: day-unit-rates
+    periods:
+      - price_type: night-unit-rates
+        start: "00:30"
+        end: "07:30"
+```
+
+Overnight periods may cross midnight. Rates are still imported when a schedule
+is absent, but cost materialisation is skipped with a clear warning.
+
+### Gas costs
+
+Some gas meters report `kWh`; others report `m3`. Raw data retains its original
+unit and Grafana can display either. Gas tariffs are priced in kWh, so estimating
+cost for an `m3` stream requires a conversion factor from the bill:
+
+```yaml
+gas_m3_to_kwh_factor: 11.1868
+```
+
+Calorific value changes over time. This estimate is useful for monitoring, not a
+replacement for the supplier's bill.
+
+## Data model
+
+The default database contains:
+
+| Measurement | Purpose |
+|---|---|
+| `octopus-usage` | Raw consumption/export. Legacy unit-named fields remain; `value` and `unit` provide a normalized representation. |
+| `octopus-tariffs` | Raw tariff rates, normalized values, units, and source validity metadata. |
+| `octopus-costs` | Materialised usage cost/revenue and daily standing charges for each compatible tariff comparison. |
+| `octopus-watermarks` | Explicit source-coverage checkpoint for every raw and derived stream. |
+| `octopus-sync-status` | Latest run status, duration, and successful/failed stream counts. |
+
+Usage costs are recorded at the source interval midpoint. Standing charges are
+recorded once at local midnight per MPAN/MPRN and tariff, not once per meter
+serial or half-hour. This remains correct on 23- and 25-hour daylight-saving
+days and across meter replacements.
+
+InfluxDB deduplicates identical timestamp/tag points, so replaying a page after a
+failure is safe. A checkpoint is committed only with the final write of a
+successful page. If one meter, tariff, or derived-cost stream fails, independent
+streams continue; the process exits non-zero after recording a failure summary.
+
+## Backfills and migration
+
+By default, new streams look back `from_max_days_ago` days and then resume from
+their checkpoints. Force a historical range with:
+
+```shell
+python3 src/octo2influx.py --from_days_ago 365 --to_days_ago 0
+```
+
+`from_days_ago` must be greater than or equal to `to_days_ago`.
+
+Existing raw measurements remain compatible. On the first checkpoint-enabled
+run, legacy usage timestamps seed consumption progress; tariffs replay the
+bounded lookback because older versions generated future boundary points that
+are not safe checkpoints. The replay is idempotent and creates normalized
+columns plus derived costs. Use an explicit backfill to materialise costs beyond
+the normal lookback.
+
+Octopus normally publishes smart-meter consumption the following day.
 
 ## Run directly with Python
 
@@ -73,86 +211,34 @@ cp src/config.example.yaml config.yaml
 python3 src/octo2influx.py
 ```
 
-On Windows, activate the environment with
-`.venv\Scripts\Activate.ps1` instead.
+On Windows, activate with `.venv\Scripts\Activate.ps1`. Create the InfluxDB
+database and token first, and use `http://localhost:8181` as `influx_url`.
 
-Create the InfluxDB 3 database and token before running the importer. For a
-local InfluxDB instance, leave `influx_url` as `http://localhost:8181`.
+Configuration priority is environment, command line, then configuration file.
+Secrets are rejected on the command line. Run
+`python3 src/octo2influx.py --help` for runtime settings.
 
-## Configuration
+## Grafana
 
-Use [`src/config.example.yaml`](src/config.example.yaml) as the starting point.
-Never commit `config.yaml`; it contains utility-account identifiers and API
-tokens.
+Docker Compose provisions:
 
-Configuration is loaded from:
+- an InfluxDB 3 SQL datasource using `INFLUXDB_TOKEN` from `.env`;
+- [`grafana/dashboard.json`](grafana/dashboard.json);
+- variables for datasource, measurements, gas unit, account timezone, and
+  comparison tariffs;
+- summed multi-meter usage, materialised tariff costs, DST-safe daily totals,
+  multi-rate price series, and latest synchronization health.
 
-1. environment variables such as `OCTO2INFLUX_TIMEZONE`;
-2. command-line arguments;
-3. `config.yaml` in the current directory, `/etc/octo2influx`, or
-   `~/.config/octo2influx`;
-4. a directory selected with `OCTO2INFLUXDIR`.
-
-Secrets are deliberately rejected on the command line because shell history and
-process listings can expose them. Put secrets in an access-restricted
-configuration file or environment variables.
-
-Run `python3 src/octo2influx.py --help` for every available setting.
-
-### Incremental updates and backfills
-
-By default, each stream resumes from its latest InfluxDB timestamp, bounded by
-`from_max_days_ago`. To force a historical range:
-
-```shell
-python3 src/octo2influx.py --from_days_ago 365 --to_days_ago 0
-```
-
-`from_days_ago` must be greater than or equal to `to_days_ago`. Large writes are
-split according to `influx_write_batch_size`.
-
-HTTP requests have a bounded timeout and retry transient connection failures,
-HTTP 429 responses, and HTTP 5xx responses. In Docker, a failed synchronisation
-is retried after `RETRY_FREQ` rather than waiting for the normal `FREQ`.
-
-> [!NOTE]
-> Octopus typically publishes smart-meter usage the following day.
-
-## Grafana dashboard
-
-1. Add an **InfluxDB** data source in Grafana.
-2. Select **SQL** as the query language.
-3. Set the URL to `http://influx:8181` for the Compose stack, or the URL of your
-   external InfluxDB 3 service.
-4. Set the database to `octo2influx` and enter the InfluxDB token.
-5. Disable TLS for plain HTTP; enable it only when the endpoint is served over
-   HTTPS.
-6. Import [`grafana/dashboard.json`](grafana/dashboard.json) and select the data
-   source when Grafana prompts.
-
-The dashboard has variables for measurement names, tariffs, history duration,
-and account timezone. Daily panels use InfluxDB's wall-clock binning so daylight
-saving changes follow the selected account timezone.
-
-Cost and revenue panels query two days before the visible range before applying
-`locf()` (last observation carried forward). This gives a fixed tariff rate
-available at the beginning of an arbitrary dashboard window. Validate calculated
-figures against a bill before relying on them for financial decisions.
+For an external Grafana installation, import the dashboard and select an
+InfluxDB datasource configured with SQL, the target database, token, and
+`insecureGrpc: true` for a plain HTTP endpoint.
 
 ## Reverse proxy
 
-The Compose example contains commented Traefik labels for Grafana and InfluxDB.
-To enable them:
-
-1. Create the shared network with `docker network create proxy`.
-2. Uncomment the relevant labels and `networks` blocks.
-3. Replace the example hostnames, entrypoint, and certificate resolver.
-4. Set `GF_SERVER_ROOT_URL` to Grafana's public HTTPS URL.
-5. Remove local `ports` mappings if the services should only be reachable
-   through Traefik.
-
-Avoid publishing the InfluxDB API unless remote access is required. Tokens
-protect the API; a smaller network attack surface is still preferable.
+The Compose example includes commented Traefik labels. Attach the selected
+services to the external `proxy` network, replace the hostnames and certificate
+resolver, set `GF_SERVER_ROOT_URL`, and remove local port mappings if access
+should be proxy-only. Do not expose InfluxDB unless it is required.
 
 ## Development
 
@@ -160,17 +246,15 @@ protect the API; a smaller network attack surface is still preferable.
 python3 -m venv .venv
 . .venv/bin/activate
 python3 -m pip install -r requirements-dev.txt
-python3 -m pytest -q
+python3 -m pytest -q -m "not integration"
 ```
 
-GitHub Actions tests Python 3.10 and 3.13, validates the Compose model, and
-builds the container. Dependabot checks Python, Docker, and Actions dependencies
-monthly.
+CI tests Python 3.10 and 3.13, validates Compose, builds the image, boots a real
+InfluxDB 3 Core instance, runs the sync twice, and proves idempotency and cost
+calculation. Dependabot checks Python, Docker, and Actions dependencies monthly.
 
 ## Acknowledgements
 
 This project is based on
-[`stevenewey/octograph`](https://github.com/stevenewey/octograph) and the later
-InfluxDB implementation from
-[`yo8192/octo2influx`](https://github.com/yo8192/octo2influx). It now targets
-InfluxDB 3 and Grafana SQL.
+[`stevenewey/octograph`](https://github.com/stevenewey/octograph) and
+[`yo8192/octo2influx`](https://github.com/yo8192/octo2influx).

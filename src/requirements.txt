@@ -1,5 +1,6 @@
 requests ~= 2.34
-influxdb3-python ~= 0.20
+influxdb3-python >= 0.20, < 0.21
 python-dateutil ~= 2.9
 pytz >= 2026.2
+tzdata >= 2026.2, < 2027
 confuse ~= 2.2

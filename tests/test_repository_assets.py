@@ -37,11 +37,23 @@ def test_compose_defaults_are_local_and_authenticated():
     assert services['grafana']['image'].endswith('13.0.7}')
     assert services['influx']['ports'][0].startswith('127.0.0.1:')
     assert services['grafana']['ports'][0].startswith('127.0.0.1:')
+    assert services['influx']['healthcheck']['retries'] == 30
     assert 'GF_AUTH_ANONYMOUS_ENABLED=false' in (
         services['grafana']['environment']
     )
+    assert any(
+        value.startswith(
+            'INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?')
+        for value in services['grafana']['environment']
+    )
+    assert services['grafana']['depends_on']['influx']['condition'] == (
+        'service_healthy'
+    )
     assert services['octo2influx']['volumes'][0].endswith(':ro')
     assert services['octo2influx']['environment']['RETRY_FREQ'] == '5m'
+    assert services['octo2influx']['depends_on']['influx']['condition'] == (
+        'service_healthy'
+    )
 
 
 def test_dashboard_is_portable_and_uses_safe_time_queries():
@@ -52,17 +64,20 @@ def test_dashboard_is_portable_and_uses_safe_time_queries():
     queries = list(dashboard_queries(dashboard))
 
     assert dashboard['id'] is None
-    assert dashboard['__inputs'][0]['name'] == 'DS_INFLUXDB'
     assert 'c8229740-0e9a-4f46-a107-27c0a34b86fb' not in dashboard_text
-    assert dashboard_text.count('${DS_INFLUXDB}') > 0
+    assert '${DS_INFLUXDB}' not in dashboard_text
+    assert dashboard_text.count('${datasource}') > 0
+    assert 'avg(\\"kWh\\")' not in dashboard_text
 
     cost_queries = [
-        query for query in queries if 'date_bin_gapfill' in query
+        query for query in queries
+        if 'FROM "${cost_measurement}"' in query
     ]
-    assert len(cost_queries) == 4
+    assert len(cost_queries) == 5
     for query in cost_queries:
-        assert "time >= $__timeFrom - INTERVAL '2 days'" in query
-        assert 'COALESCE(SUM(r.standing), 0.0)' in query
+        assert '"cost_type" IN (\'usage\', \'standing\')' in query
+        assert 'date_bin_gapfill' not in query
+        assert '/ 48.0' not in query
 
     daily_queries = [
         query for query in queries
@@ -72,3 +87,21 @@ def test_dashboard_is_portable_and_uses_safe_time_queries():
     for query in daily_queries:
         assert 'date_bin_wallclock' in query
         assert "tz(time, '${account_timezone}')" in query
+
+    variables = {
+        item['name']: item for item in dashboard['templating']['list']
+    }
+    assert variables['datasource']['type'] == 'datasource'
+    assert variables['gas_unit']['query'] == 'm3,kWh'
+    assert variables['cost_measurement']['query'] == 'octopus-costs'
+    assert variables['status_measurement']['query'] == 'octopus-sync-status'
+    assert any(panel['title'] == 'Latest Synchronization'
+               for panel in dashboard['panels'])
+
+    rate_queries = [
+        query for query in queries
+        if 'unit-rate_£/kWh' in query
+    ]
+    assert len(rate_queries) == 2
+    assert all('date_bin_gapfill' in query for query in rate_queries)
+    assert all('locf(' in query for query in rate_queries)

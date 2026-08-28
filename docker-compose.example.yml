@@ -10,7 +10,7 @@ services:
     # InfluxDB 3 Core has no env-based bootstrap. After the first start, create
     # an admin token and put it into config.yaml as influx_api_token:
     #   docker compose exec influx influxdb3 create token --admin
-    # The database is auto-created on first write, or create it explicitly:
+    # InfluxDB 3 Core requires the database to be created explicitly:
     #   docker compose exec influx influxdb3 create database octo2influx --token <token>
     command:
       - influxdb3
@@ -24,6 +24,17 @@ services:
       # Bind locally by default. Use the opt-in Traefik configuration below
       # if remote access is required.
       - "127.0.0.1:${INFLUX_PORT:-8181}:8181"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          code=$$(curl --silent --output /dev/null --write-out '%{http_code}'
+          http://localhost:8181/ping);
+          [ "$$code" = "200" ] || [ "$$code" = "401" ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
     # --- Traefik integration (optional) ---
     # Serve the InfluxDB 3 API over HTTPS through Traefik. Uncomment the labels
     # and the `networks` block below (see the shared "proxy" network at the
@@ -49,10 +60,20 @@ services:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafanadata:/var/lib/grafana
+      - "./grafana/provisioning:/etc/grafana/provisioning:ro"
+      - "./grafana/dashboard.json:/var/lib/grafana/dashboards/octo2influx.json:ro"
+    logging:
+        driver: "json-file"
+        options:
+            max-file: "5"
+            max-size: "20m"
     environment:
       #- GF_SECURITY_ADMIN_PASSWORD=
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_USERS_ALLOW_SIGN_UP=false
+      - INFLUXDB_URL=${GRAFANA_INFLUXDB_URL:-http://influx:8181}
+      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-octo2influx}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in .env}
       # Use European dates DD/MM, instead of the default US MM/DD
       # Used by graph and other places where we only show small intervals
       - GF_DATE_FORMATS_INTERVAL_HOUR=DD/MM HH:mm
@@ -60,6 +81,9 @@ services:
       # When served behind a reverse proxy such as Traefik, tell Grafana its
       # public URL (uncomment and match the Host() rule below):
       #- GF_SERVER_ROOT_URL=https://grafana.example.com
+    depends_on:
+      influx:
+        condition: service_healthy
     # --- Traefik integration (optional) ---
     # Expose Grafana through an existing Traefik reverse proxy with automatic
     # TLS. Requires a running Traefik instance attached to the external
@@ -96,7 +120,7 @@ services:
       RETRY_FREQ: "5m"
     depends_on:
       influx:
-        condition: service_started
+        condition: service_healthy
 
 # Named volumes for persistent InfluxDB 3 and Grafana data.
 volumes:
@@ -110,4 +134,3 @@ volumes:
 #networks:
 #  proxy:
 #    external: true
-

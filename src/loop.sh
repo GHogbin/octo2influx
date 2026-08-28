@@ -4,6 +4,7 @@ set -u
 
 FREQ="${FREQ:-1h}"
 RETRY_FREQ="${RETRY_FREQ:-5m}"
+HEALTH_FILE="${HEALTH_FILE:-/tmp/octo2influx-health}"
 child_pid=""
 
 usage() {
@@ -47,6 +48,7 @@ validate_duration "RETRY_FREQ" "$RETRY_FREQ"
 trap terminate TERM INT
 
 echo "$(timestamp) Starting with FREQ=$FREQ and RETRY_FREQ=$RETRY_FREQ..."
+printf 'starting\n' > "$HEALTH_FILE"
 echo "$(timestamp) Waiting 7 seconds before the first synchronization..."
 wait_for 7
 
@@ -56,10 +58,12 @@ while :; do
     child_pid=$!
     if wait "$child_pid"; then
         delay="$FREQ"
+        printf 'success\n' > "$HEALTH_FILE"
         echo "$(timestamp) Synchronization completed."
     else
         status=$?
         delay="$RETRY_FREQ"
+        printf 'failed\n' > "$HEALTH_FILE"
         echo "$(timestamp) Synchronization failed with exit code $status." >&2
     fi
     child_pid=""

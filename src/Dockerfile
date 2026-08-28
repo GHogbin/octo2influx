@@ -24,10 +24,15 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --chown=octo2influx:octo2influx octo2influx.py loop.sh ./
+COPY --chown=octo2influx:octo2influx octo2influx_core ./octo2influx_core
 
 USER octo2influx
 
 ENV FREQ=1h \
-    RETRY_FREQ=5m
+    RETRY_FREQ=5m \
+    HEALTH_FILE=/tmp/octo2influx-health
+
+HEALTHCHECK --interval=1m --timeout=5s --start-period=10m --retries=3 \
+    CMD test "$(cat "$HEALTH_FILE" 2>/dev/null)" = "success" || exit 1
 
 ENTRYPOINT ["bash", "loop.sh"]

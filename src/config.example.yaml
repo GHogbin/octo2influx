@@ -10,6 +10,9 @@
 influx_database: "octo2influx"
 influx_tariff_measurement: "octopus-tariffs"
 influx_usage_measurement: "octopus-usage"
+influx_cost_measurement: "octopus-costs"
+influx_watermark_measurement: "octopus-watermarks"
+influx_status_measurement: "octopus-sync-status"
 # Use http://influx:8181 when running the supplied Docker Compose stack.
 influx_url: "http://localhost:8181"
 # Create this after starting InfluxDB 3:
@@ -19,6 +22,17 @@ influx_api_token: "MY_INFLUX_API_TOKEN"
 # Generate an Octopus API key at:
 # https://octopus.energy/dashboard/developer/
 octopus_api_key: "MY_OCTOPUS_API_KEY"
+
+# Optional: discover current meters and tariff agreements from an account.
+# Explicit usage/tariff entries below take precedence over discovered entries.
+# account_number: "A-XXXXXXXX"
+discover_historical_tariffs: false
+discovered_gas_unit: "m3"
+
+# Gas tariffs are priced in kWh, while SMETS2 consumption is usually returned
+# in m3. Set a factor supplied by your bill if estimated gas costs are wanted.
+# The calorific value varies, so a generic factor is not billing-grade.
+# gas_m3_to_kwh_factor: 11.1868
 
 # Consumption streams to retrieve. Remove entries you do not use.
 # Find MPAN/MPRN and meter serial values on an Octopus bill or account page.
@@ -83,6 +97,7 @@ to_days_ago: 0
 # HTTP requests use a bounded timeout and retry transient failures.
 request_timeout_seconds: 30
 request_max_retries: 4
+request_max_pages: 1000
 
 # Limit each InfluxDB write request to avoid oversized payloads on backfills.
 influx_write_batch_size: 5000
@@ -90,4 +105,20 @@ influx_write_batch_size: 5000
 base_url: "https://api.octopus.energy/v1"
 price_types:
   "standard-unit-rates": "p/kWh"
+  "day-unit-rates": "p/kWh"
+  "night-unit-rates": "p/kWh"
+  "ev-device-off-peak-unit-rates": "p/kWh"
+  "ev-device-peak-unit-rates": "p/kWh"
   "standing-charges": "p/day"
+
+# Multi-rate tariffs need a local-time schedule before interval costs can be
+# materialized. Rates are still imported when no schedule is supplied.
+tariff_schedules: {}
+# tariff_schedules:
+#   "E-2R-YOUR-PRODUCT-C":
+#     timezone: "Europe/London"
+#     default_price_type: "day-unit-rates"
+#     periods:
+#       - price_type: "night-unit-rates"
+#         start: "00:30"
+#         end: "07:30"

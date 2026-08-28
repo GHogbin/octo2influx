@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "copilot/**"]
   pull_request:
   workflow_dispatch:
 
@@ -35,6 +35,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate Compose configuration
+        env:
+          INFLUXDB_TOKEN: ci-placeholder-token
         run: docker compose -f docker-compose.example.yml config --quiet
       - name: Build image
         run: docker build --tag octo2influx:test src
+
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Start InfluxDB
+        run: >-
+          docker run --detach
+          --name octo2influx-integration-influx
+          --publish 8181:8181
+          influxdb:3.11.2-core
+          influxdb3 serve
+          --node-id=ci
+          --object-store=memory
+      - name: Bootstrap InfluxDB
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            code="$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8181/ping)"
+            if [[ "$code" == "200" || "$code" == "401" ]]; then
+              break
+            fi
+            sleep 1
+          done
+
+          token="$(
+            curl --fail --silent --show-error \
+              --request POST \
+              http://localhost:8181/api/v3/configure/token/admin |
+              python -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+          )"
+          echo "::add-mask::$token"
+          curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $token" \
+            --header "Content-Type: application/json" \
+            --data '{"db":"octo2influx_test"}' \
+            http://localhost:8181/api/v3/configure/database
+
+          echo "TEST_INFLUX_URL=http://localhost:8181" >> "$GITHUB_ENV"
+          echo "TEST_INFLUX_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "TEST_INFLUX_DATABASE=octo2influx_test" >> "$GITHUB_ENV"
+      - name: Run InfluxDB integration tests
+        run: python -m pytest -q -m integration
