@@ -102,8 +102,8 @@ usage:
     unit: kWh
 ```
 
-Tariffs can optionally define agreement bounds, payment method, and endpoint
-types:
+Tariffs can optionally define agreement bounds, payment method, endpoint types,
+and whether their rates should be used to materialise comparison costs:
 
 ```yaml
 tariffs:
@@ -114,11 +114,17 @@ tariffs:
     full_name: "Example Economy 7"
     display_name: "Example Economy 7"
     description: ""
+    materialize_costs: false
     rate_types:
       - day-unit-rates
       - night-unit-rates
       - standing-charges
 ```
+
+`materialize_costs: false` keeps the raw tariff history available in Grafana
+without creating usage or standing-charge comparisons for that tariff. This is
+useful when a tariff exposes multiple payment-method prices and no single method
+should be assumed.
 
 ### Multi-rate schedules
 

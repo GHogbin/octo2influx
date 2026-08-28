@@ -71,6 +71,8 @@ tariffs:
     full_name: "Octopus Flux Import"
     display_name: "Octopus Flux Import"
     description: "Example electricity import tariff; replace with your tariff."
+    # Set false to ingest rates without calculating comparison costs.
+    materialize_costs: true
   - energy_type: "electricity"
     direction: "export"
     product_code: "FLUX-EXPORT-23-02-14"

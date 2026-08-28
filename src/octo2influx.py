@@ -80,6 +80,7 @@ confuse_tariff_template = {
     'description': str,
     'rate_types': confuse.Optional(confuse.Sequence(str), default=[]),
     'payment_method': confuse.Optional(str, default=None),
+    'materialize_costs': confuse.Optional(bool, default=True),
     'agreement_from': confuse.Optional(str, default=None),
     'agreement_to': confuse.Optional(str, default=None),
 }
@@ -592,6 +593,7 @@ def explicit_tariff_configs() -> list[TariffConfig]:
             description=item.description,
             rate_types=tuple(item.rate_types),
             payment_method=item.payment_method,
+            materialize_costs=item.materialize_costs,
             agreement_from=parse_optional_datetime(item.agreement_from),
             agreement_to=parse_optional_datetime(item.agreement_to),
         ))

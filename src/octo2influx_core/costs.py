@@ -47,6 +47,7 @@ def compatible_tariffs(
         tariff for tariff in tariffs
         if tariff.energy_type == usage.energy_type
         and tariff.direction == usage.direction
+        and tariff.materialize_costs
     ]
 
 

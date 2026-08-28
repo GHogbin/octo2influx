@@ -53,6 +53,7 @@ class TariffConfig:
     description: str
     rate_types: tuple[str, ...] = ()
     payment_method: str | None = None
+    materialize_costs: bool = True
     agreement_from: datetime | None = None
     agreement_to: datetime | None = None
     agreement_windows: tuple[

@@ -3,6 +3,7 @@ from datetime import datetime, time, timezone
 import octo2influx
 from octo2influx_core.costs import (
     build_cost_plan,
+    compatible_tariffs,
     standing_charge_points,
     usage_cost_point,
 )
@@ -20,7 +21,8 @@ from octo2influx_core.models import (
 )
 
 
-def tariff(tariff_code='E-1R-TEST-C', rate_types=()):
+def tariff(tariff_code='E-1R-TEST-C', rate_types=(),
+           materialize_costs=True):
     return TariffConfig(
         energy_type='electricity',
         direction='import',
@@ -30,6 +32,7 @@ def tariff(tariff_code='E-1R-TEST-C', rate_types=()):
         display_name='Test tariff',
         description='',
         rate_types=rate_types,
+        materialize_costs=materialize_costs,
     )
 
 
@@ -41,6 +44,16 @@ def usage(energy_type='electricity', unit='kWh'):
         meter_serial='meter-serial',
         unit=unit,
     )
+
+
+def test_compatible_tariffs_excludes_disabled_cost_comparisons():
+    enabled = tariff('E-1R-ENABLED-C')
+    disabled = tariff(
+        'E-1R-DISABLED-C',
+        materialize_costs=False,
+    )
+
+    assert compatible_tariffs(usage(), [disabled, enabled]) == [enabled]
 
 
 def rate_row(value, valid_from='2024-01-01T00:00:00Z',
