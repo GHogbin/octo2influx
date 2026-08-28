@@ -1,4 +1,5 @@
 requests ~= 2.34
 influxdb3-python ~= 0.20
+python-dateutil ~= 2.9
 pytz >= 2026.2
 confuse ~= 2.2

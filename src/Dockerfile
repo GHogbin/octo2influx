@@ -1,31 +1,33 @@
 FROM ubuntu:24.04
 
-LABEL maintainer="Thibault Godouet <yo8192@users.noreply.github.com>"
+LABEL org.opencontainers.image.title="octo2influx" \
+      org.opencontainers.image.description="Octopus Energy to InfluxDB 3 importer" \
+      org.opencontainers.image.source="https://github.com/GHogbin/octo2influx"
 
 WORKDIR /usr/src/app
 
-# Install Python 3 and bash (loop.sh) on Ubuntu; ca-certificates for HTTPS calls
-# to the Octopus/InfluxDB APIs. Clean apt lists to keep the image small.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         python3 python3-venv python3-pip bash ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Ubuntu 24.04's system Python is PEP 668 "externally managed", so install into
-# an isolated virtualenv and put it first on PATH (python3 in loop.sh uses it):
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv "$VIRTUAL_ENV"
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# python Confuse requires the home to exist:
-RUN useradd -u 9923 octo2influx --create-home
+RUN useradd --uid 9923 --create-home --shell /usr/sbin/nologin octo2influx
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY octo2influx.py loop.sh ./
+COPY --chown=octo2influx:octo2influx octo2influx.py loop.sh ./
 
 USER octo2influx
 
-ENV FREQ=1h
-ENTRYPOINT [ "bash", "loop.sh" ]
+ENV FREQ=1h \
+    RETRY_FREQ=5m
+
+ENTRYPOINT ["bash", "loop.sh"]

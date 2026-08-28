@@ -1,363 +1,92 @@
 ---
 # octo2influx.py configuration file
-
-# Run 'octo2influx.py --help' to get information on the config keys.
-# Note settings can be overridden by command line parameters,
-# and environement variable with prefix 'OCTO2INFLUX_'
-# e.g. timezone -> OCTO2INFLUX_TIMEZONE
+#
+# Copy this file to config.yaml and replace every placeholder. Never commit
+# config.yaml: it contains account identifiers and API tokens.
+#
+# Settings can be overridden by command-line arguments or environment variables
+# prefixed with OCTO2INFLUX_, for example OCTO2INFLUX_TIMEZONE.
 
 influx_database: "octo2influx"
 influx_tariff_measurement: "octopus-tariffs"
 influx_usage_measurement: "octopus-usage"
-# Use the plain http URL for a local instance, or the https endpoint when
-# InfluxDB 3 is served through a reverse proxy such as Traefik, e.g.:
-#   influx_url: "https://influx.example.com"
-# With the Docker Compose stack, use the influx *service name* as the host
-# (not localhost, which would be the octo2influx container itself):
-#   influx_url: "http://influx:8181"
+# Use http://influx:8181 when running the supplied Docker Compose stack.
 influx_url: "http://localhost:8181"
-# Create an admin token for InfluxDB 3, e.g.:
+# Create this after starting InfluxDB 3:
 #   influxdb3 create token --admin
-# (with Docker Compose: docker compose exec influx influxdb3 create token --admin)
 influx_api_token: "MY_INFLUX_API_TOKEN"
 
-# See Octopus API's documentation at https://developer.octopus.energy/docs/api/
+# Generate an Octopus API key at:
+# https://octopus.energy/dashboard/developer/
+octopus_api_key: "MY_OCTOPUS_API_KEY"
 
-# To get an Octopus API key, visit https://octopus.energy/dashboard/developer/
-octopus_api_key: "my_octopus_api_key"
-
-# Usage (consumption/import/export) to retrieve from Octopus
-#
-# How to:
-# - find your meter serial number, meter point (MPAN or MPRN):
-#   see your Octopus invoices, or your account on Octopus's website
-# - find the unit: it is kWh for electricity. For gas, go to your account
-#   on the Octopus Website -> Explore My Energy Use -> Download your smart data for Gas,
-#   and check the unit in the header of the CSV file.
+# Consumption streams to retrieve. Remove entries you do not use.
+# Find MPAN/MPRN and meter serial values on an Octopus bill or account page.
 usage:
-#  - energy_type: "electricity"
-#    direction: "import"
-#    meter_point: "mpan"
-#    meter_serial: "serial_number"
-#    unit: "kWh"
+  - energy_type: "electricity"
+    direction: "import"
+    meter_point: "YOUR_ELECTRICITY_MPAN"
+    meter_serial: "YOUR_ELECTRICITY_METER_SERIAL"
+    unit: "kWh"
   - energy_type: "electricity"
     direction: "export"
-    meter_point: "2000007370189"
-    meter_serial: "20J0018186"
+    meter_point: "YOUR_EXPORT_MPAN"
+    meter_serial: "YOUR_EXPORT_METER_SERIAL"
     unit: "kWh"
   - energy_type: "gas"
     direction: "import"
-    meter_point: "3991755708"
-    meter_serial: "G4W00046792027"
-    # Note: Octopus gives m^3 for SMETS v2 meters, kWh for SMETS v1 ones
+    meter_point: "YOUR_GAS_MPRN"
+    meter_serial: "YOUR_GAS_METER_SERIAL"
+    # Octopus generally reports SMETS2 gas meters in m3 and SMETS1 in kWh.
     unit: "m3"
 
-# Tariffs to retrieve from Octopus
+# Tariffs to retrieve. These are representative examples, not a catalogue.
+# Keep only tariffs you want to compare and update their product/tariff codes.
 #
-# How to (replace the curly-brackets):
-# - Find which GSP (grid-supply-point, i.e. geographical zone) you are in:
-#   $ curl --user "{yourOctopusApiKey}:" https://api.octopus.energy/v1/electricity-meter-points/{MPAN}/ | jq
-# - Find your product (outputs the product code, to use in the next command, and a longer human readable name):
-#   $ curl --user "{yourOctopusApiKey}:" https://api.octopus.energy/v1/products/ | jq '.results[] | .code + " " + .full_name'  | less
-# - Find the full name, display name, and description of the product (and URLs etc):
-#   Note: only use the shorter product code in the URL (e.g. INTELLI-VAR-22-10-14), *not* the long human readable name
-#   $ curl --user "{yourOctopusApiKey}:" https://api.octopus.energy/v1/products/{OCTOPUS-PRODUCT-CODE}/ | jq  | less
+# The final tariff-code letter is the GSP region. Find yours with:
+#   curl --user "{api-key}:" \
+#     https://api.octopus.energy/v1/electricity-meter-points/{MPAN}/
 #
-# On Windows PowerShell there is no jq and 'curl' is an alias for
-# Invoke-WebRequest, so use the native equivalents below (Invoke-RestMethod
-# parses the JSON for you). First set up Basic auth (API key as username):
-#   $key = 'yourOctopusApiKey'
-#   $headers = @{ Authorization = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${key}:")))" }
-# - Find which GSP you are in:
-#   Invoke-RestMethod -Headers $headers -Uri "https://api.octopus.energy/v1/electricity-meter-points/$MPAN/" | ConvertTo-Json -Depth 10
-# - List product code + full name:
-#   (Invoke-RestMethod -Headers $headers -Uri "https://api.octopus.energy/v1/products/").results | ForEach-Object { "$($_.code)  $($_.full_name)" }
-# - Details of one product (short product code only):
-#   Invoke-RestMethod -Headers $headers -Uri "https://api.octopus.energy/v1/products/$product/" | ConvertTo-Json -Depth 10
+# Browse current products with:
+#   curl --user "{api-key}:" https://api.octopus.energy/v1/products/
 tariffs:
-  # NOTE: the trailing letter of each electricity/gas tariff_code is your GSP
-  # region (from the GSP lookup above); replace "-C" with yours, e.g. "-H".
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "AGILE-24-10-01"
-    full_name: "Agile Octopus October 2024 v1"
-    display_name: "Agile Octopus"
-    description: "With Agile Octopus, you get access to half-hourly energy prices, tied to wholesale prices and updated daily.  The unit rate is capped at 100p/kWh (including VAT)."
-    tariff_code: "E-1R-AGILE-24-10-01-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "AGILE-OUTGOING-19-05-13"
-    full_name: "Agile Outgoing Octopus May 2019"
-    display_name: "Agile Outgoing Octopus"
-    description: "Outgoing Octopus Agile rate pays you for all your exported energy based on the day-ahead wholesale rate."
-    tariff_code: "E-1R-AGILE-OUTGOING-19-05-13-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "COOP-FIX-12M-26-07-03"
-    full_name: "Co-op 12M Fixed July 2026 v1"
-    display_name: "Co-op 12M Fixed"
-    description: "This fixed tariff locks in your unit rates and standing charges for 12 months.  This tariff has a £50 early exit fee per fuel."
-    tariff_code: "E-1R-COOP-FIX-12M-26-07-03-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "COOP-PP-VAR-20-04-01"
-    full_name: "Co-op Key and Card"
-    display_name: "Co-op Key and Card"
-    description: "Non-smart prepayment tariff"
-    tariff_code: "E-1R-COOP-PP-VAR-20-04-01-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "COOP-SEG-EO-FIX-12M-24-04-05"
-    full_name: "Co-op Smart Export Guarantee Export Only April 2024 v1"
-    display_name: "Co-op Smart Export Guarantee Export Only"
-    description: "This is our Smart Export Guarantee compliant export tariff for export only accounts"
-    tariff_code: "E-1R-COOP-SEG-EO-FIX-12M-24-04-05-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "COOP-SEG-FIX-12M-20-11-11"
-    full_name: "Co-op Smart Export Guarantee November 2020 v1"
-    display_name: "Co-op Smart Export Guarantee"
-    description: "This is our Smart Export Guarantee compliant export tariff"
-    tariff_code: "E-1R-COOP-SEG-FIX-12M-20-11-11-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "COOP-VAR-23-04-01"
-    full_name: "Co-op Flexible"
-    display_name: "Co-op Flexible"
-    description: "Co-op Flexible prices fluctuate with the cost of supply and usually update every 3 months."
-    tariff_code: "E-1R-COOP-VAR-23-04-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "COSY-22-12-08"
-    full_name: "Cosy Octopus"
-    display_name: "Cosy Octopus"
-    description: "Cosy Octopus is a heat pump tariff with eight hours of super cheap electricity every day to warm your home."
-    tariff_code: "E-1R-COSY-22-12-08-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "COSY-FIX-12M-26-06-25"
-    full_name: "Cosy Octopus 12M Fixed June 2026 v1"
-    display_name: "Cosy Octopus 12M Fixed"
-    description: "Cosy Octopus is a heat pump tariff with eight hours of super cheap electricity every day to warm your home."
-    tariff_code: "E-1R-COSY-FIX-12M-26-06-25-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "CP-12M-26-07-03"
-    full_name: "Co-op Community Power 12M Fixed July 2026 v1"
-    display_name: "Co-op Community Power"
-    description: "This fixed tariff locks in your unit rates and standing charges for 12 months.  This tariff has a £50 early exit fee per fuel."
-    tariff_code: "E-1R-CP-12M-26-07-03-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "FLUX-EXPORT-23-02-14"
-    full_name: "Octopus Flux Export"
-    display_name: "Octopus Flux Export"
-    description: "Octopus Flux Export February 2023 v1"
-    tariff_code: "E-1R-FLUX-EXPORT-23-02-14-C"
   - energy_type: "electricity"
     direction: "import"
     product_code: "FLUX-IMPORT-23-02-14"
+    tariff_code: "E-1R-FLUX-IMPORT-23-02-14-C"
     full_name: "Octopus Flux Import"
     display_name: "Octopus Flux Import"
-    description: "Power your home with 100% renewable energy on this Octopus Energy electricity tariff designed exclusively for solar and battery owners."
-    tariff_code: "E-1R-FLUX-IMPORT-23-02-14-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "GO-FIX-12M-26-06-30"
-    full_name: "Octopus Go 12M Fixed June 2026 v2"
-    display_name: "Octopus Go 12M Fixed"
-    description: "The smart EV tariff with super cheap electricity between 00:30 - 05:30 every night"
-    tariff_code: "E-1R-GO-FIX-12M-26-06-30-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "INTELLI-FIX-12M-26-06-13"
-    full_name: "Intelligent Octopus Go 12M Fixed June 2026 v1"
-    display_name: "Intelligent Octopus Go 12M Fixed"
-    description: "With Intelligent Octopus Go EV tariff, you have access to a super low electricity rate between 23:30 - 05:30 every night, plus it smart-charges your car at the cheapest and greenest times overnight."
-    tariff_code: "E-1R-INTELLI-FIX-12M-26-06-13-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "INTELLI-FIX-OEV-12M-26-06-13"
-    full_name: "Intelligent Octopus Go 12M Fixed June 2026 v1 - EV Saver"
-    display_name: "Intelligent Octopus Go 12M Fixed - EV Saver"
-    description: "With our OEV exclusive Intelligent Octopus Go EV Saver tariff, you have access to a super low electricity rate between 23:30 - 05:30 every night, plus it smart-charges your car at the cheapest and greenest times overnight."
-    tariff_code: "E-1R-INTELLI-FIX-OEV-12M-26-06-13-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "INTELLI-FLUX-IMPORT-23-07-14"
-    full_name: "Intelligent Octopus Flux Import"
-    display_name: "Intelligent Octopus Flux Import"
-    description: "Power your home with 100% renewable energy on this Octopus Energy electricity tariff designed exclusively for solar and battery owners."
-    tariff_code: "E-1R-INTELLI-FLUX-IMPORT-23-07-14-C"
+    description: "Example electricity import tariff; replace with your tariff."
   - energy_type: "electricity"
     direction: "export"
-    product_code: "LP-SEG-EO-FIX-12M-24-04-05"
-    full_name: "my london smart export guarantee export only april 2024 v1"
-    display_name: "my london smart export only guarantee"
-    description: "This is our Smart Export Guarantee compliant export tariff for export only accounts"
-    tariff_code: "E-1R-LP-SEG-EO-FIX-12M-24-04-05-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "LP-SEG-FIX-12M-20-11-11"
-    full_name: "my london smart export guarantee november 2020 v1"
-    display_name: "my london smart export guarantee"
-    description: "This is our Smart Export Guarantee compliant export tariff"
-    tariff_code: "E-1R-LP-SEG-FIX-12M-20-11-11-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "LP-VAR-23-04-01"
-    full_name: "my london flexible plan"
-    display_name: "my london flexible plan"
-    description: "my london flexible plan prices fluctuate with the cost of supply and usually update every 3 months."
-    tariff_code: "E-1R-LP-VAR-23-04-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "OE-FIX-12M-26-07-03"
-    full_name: "Octopus 12M Fixed July 2026 v1"
-    display_name: "Octopus 12M Fixed"
-    description: "This fixed tariff locks in your unit rates and standing charges for 12 months.  This tariff has a £50 early exit fee per fuel."
-    tariff_code: "E-1R-OE-FIX-12M-26-07-03-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "OUTGOING-PRIME-FIX-12M-26-06-23"
-    full_name: "Prime Outgoing Octopus 12M Fixed June 2026 v1"
-    display_name: "Prime Outgoing Octopus 12M Fixed"
-    description: "Two rate export tariff that rewards you with a higher rate during the prime time of 4pm - 7pm"
-    tariff_code: "E-1R-OUTGOING-PRIME-FIX-12M-26-06-23-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "OUTGOING-SEG-EO-FIX-12M-24-04-05"
-    full_name: "Octopus Outgoing Smart Export Guarantee Export Only April 2024 v1"
-    display_name: "Octopus Outgoing Smart Export Guarantee Export Only"
-    description: "Outgoing SEG is our Smart Export Guarantee compliant export tariff for our export only accounts"
-    tariff_code: "E-1R-OUTGOING-SEG-EO-FIX-12M-24-04-05-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "OUTGOING-SEG-FIX-12M-20-07-07"
-    full_name: "Octopus Outgoing Smart Export Guarantee July 2020 v1"
-    display_name: "Octopus Outgoing Smart Export Guarantee"
-    description: "Outgoing SEG is our Smart Export Guarantee compliant export tariff"
-    tariff_code: "E-1R-OUTGOING-SEG-FIX-12M-20-07-07-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "OUTGOING-VAR-24-10-26"
-    full_name: "Outgoing Octopus"
-    display_name: "Outgoing Octopus"
-    description: "Outgoing Octopus pays you for all exported energy at a flat rate."
-    tariff_code: "E-1R-OUTGOING-VAR-24-10-26-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "POWER-PACK-24-02-15"
-    full_name: "Octopus Power Pack"
-    display_name: "Octopus Power Pack"
-    description: "Octopus Power Pack"
-    tariff_code: "E-1R-POWER-PACK-24-02-15-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "PREPAY-TWIN2-VAR-25-07-01"
-    full_name: "Octopus Twin 2 rate Key and Card"
-    display_name: "Octopus Twin 2 rate Key and Card"
-    description: "Non-smart prepayment tariff"
-    tariff_code: "E-1R-PREPAY-TWIN2-VAR-25-07-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "PREPAY-TWIN3-VAR-25-07-01"
-    full_name: "Octopus Twin 3 rate Key and Card"
-    display_name: "Octopus Twin 3 rate Key and Card"
-    description: "Non-smart prepayment tariff"
-    tariff_code: "E-1R-PREPAY-TWIN3-VAR-25-07-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "PREPAY-VAR-18-09-21"
-    full_name: "Octopus Key and Card"
-    display_name: "Octopus Key and Card"
-    description: "Non-smart prepayment tariff"
-    tariff_code: "E-1R-PREPAY-VAR-18-09-21-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "SMART-PREPAY-VAR-22-10-22"
-    full_name: "Flexible Octopus Smart Pay as You Go"
-    display_name: "Flexible Octopus Smart Pay as You Go"
-    description: "Smart prepayment tariff"
-    tariff_code: "E-1R-SMART-PREPAY-VAR-22-10-22-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "SNUG-24-11-07"
-    full_name: "Snug Octopus"
-    display_name: "Snug Octopus"
-    description: "Snug Octopus is a smart tariff for storage heaters that schedules charging at the cheapest, greenest times overnight and boosts heating in the afternoon to keep homes cosy."
-    tariff_code: "E-1R-SNUG-24-11-07-C"
-  - energy_type: "electricity"
+    product_code: "FLUX-EXPORT-23-02-14"
+    tariff_code: "E-1R-FLUX-EXPORT-23-02-14-C"
+    full_name: "Octopus Flux Export"
+    display_name: "Octopus Flux Export"
+    description: "Example electricity export tariff; replace with your tariff."
+  - energy_type: "gas"
     direction: "import"
     product_code: "VAR-22-11-01"
+    tariff_code: "G-1R-VAR-22-11-01-C"
     full_name: "Flexible Octopus"
     display_name: "Flexible Octopus"
-    description: "Flexible Octopus prices fluctuate with the cost of supply and usually update every 3 months."
-    tariff_code: "E-1R-VAR-22-11-01-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "ZERO-EXPORT-120M-22-05-01"
-    full_name: "Octopus Zero Bills Export (10 years)"
-    display_name: "Octopus Zero Export"
-    description: "Octopus ZERO Export Tariff - For registered Octopus ZERO homes ONLY.  Fair use allowance: 4,000 kWh of net electricity import per year"
-    tariff_code: "E-1R-ZERO-EXPORT-120M-22-05-01-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "ZERO-EXPORT-60M-22-05-01"
-    full_name: "Octopus Zero Bills Export (5 years)"
-    display_name: "Octopus Zero Export"
-    description: "Octopus ZERO Export Tariff - For registered Octopus ZERO homes ONLY.  Fair use allowance: 10MWh of net electricity import per year"
-    tariff_code: "E-1R-ZERO-EXPORT-60M-22-05-01-C"
-  - energy_type: "electricity"
-    direction: "export"
-    product_code: "ZERO-EXPORT-60M-25-01-01"
-    full_name: "Octopus Zero Bills (Upgrade) Export"
-    display_name: "Octopus Zero Bills (Upgrade) Export"
-    description: "For registered Octopus Zero Bills homes ONLY. Fair Use Allowance specific to the property, based on home size instead of annual consumption."
-    tariff_code: "E-1R-ZERO-EXPORT-60M-25-01-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "ZERO-IMPORT-120M-22-05-01"
-    full_name: "Octopus Zero Bills Import (10 years)"
-    display_name: "Octopus Zero Import"
-    description: "Octopus ZERO Import Tariff - For registered Octopus ZERO homes ONLY.  Fair use allowance: 4,000 kWh of net electricity import per year"
-    tariff_code: "E-1R-ZERO-IMPORT-120M-22-05-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "ZERO-IMPORT-60M-22-05-01"
-    full_name: "Octopus Zero Bills Import (5 years)"
-    display_name: "Octopus Zero Import"
-    description: "Octopus ZERO Import Tariff - For registered Octopus ZERO homes ONLY.  Fair use allowance: 10MWh of net electricity import per year"
-    tariff_code: "E-1R-ZERO-IMPORT-60M-22-05-01-C"
-  - energy_type: "electricity"
-    direction: "import"
-    product_code: "ZERO-IMPORT-60M-25-01-01"
-    full_name: "Octopus Zero Bills (Upgrade) Import"
-    display_name: "Octopus Zero Bills (Upgrade) Import"
-    description: "For registered Octopus Zero Bills homes ONLY. Fair Use Allowance specific to the property, based on home size instead of annual consumption."
-    tariff_code: "E-1R-ZERO-IMPORT-60M-25-01-01-C"
-  - energy_type: "gas"
-    direction: "import"
-    product_code: "VAR-22-11-01"
-    full_name: "Flexible Octopus November 2022 v1"
-    display_name: "Flexible Octopus"
-    description: "Flexible Octopus offers great value and 100% renewable electricity."
-    tariff_code: "G-1R-VAR-22-11-01-C"
-  - energy_type: "gas"
-    direction: "import"
-    product_code: "LOYAL-FIX-12M-23-07-25"
-    full_name: "Loyal Octopus 12M Fixed July 2023 v1"
-    display_name: "Loyal Octopus 12M Fixed"
-    description: "This tariff features 100% renewable electricity and fixes your unit rates and standing charge for 12 months. This tariff has £75/fuel exit fees."
-    tariff_code: "G-1R-LOYAL-FIX-12M-23-07-25-C"
+    description: "Example gas tariff; replace with your tariff."
 
 loglevel: INFO
-
-# Various settings you are unlikely to need changing:
 timezone: "Europe/London"
-# Timespan to retrieve data for. 0 means today.
+
+# Date range. 0 means today. from_days_ago, when set by config or CLI,
+# overrides the incremental from_max_days_ago behavior.
 from_max_days_ago: 60
 to_days_ago: 0
+
+# HTTP requests use a bounded timeout and retry transient failures.
+request_timeout_seconds: 30
+request_max_retries: 4
+
+# Limit each InfluxDB write request to avoid oversized payloads on backfills.
+influx_write_batch_size: 5000
+
 base_url: "https://api.octopus.energy/v1"
 price_types:
   "standard-unit-rates": "p/kWh"

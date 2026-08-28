@@ -1,27 +1,45 @@
-import sys
-import os
-
-sys.path.append(os.path.abspath('./src'))  # to run from top dir
-sys.path.append(os.path.abspath('../src'))  # to run from tests/ dir
-
 import pytest
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from freezegun import freeze_time
 import pytz
+from types import SimpleNamespace
 import octo2influx
 from octo2influx import cfg
 
-@pytest.fixture
-def load_example_config():
-    cfg.clear()
-    for directory in '../src', 'src':
-        path = os.path.join(directory, 'config.example.yaml')
-        if os.path.isfile(path):
-            cfg.set_file(path)
-            return
 
-    raise FileNotFoundError("Could not find 'config.example.yaml'")
+@pytest.fixture
+def flux_import_tariff():
+    return SimpleNamespace(
+        energy_type='electricity',
+        direction='import',
+        product_code='FLUX-IMPORT-23-02-14',
+        tariff_code='E-1R-FLUX-IMPORT-23-02-14-C',
+        display_name='Octopus Flux Import',
+    )
+
+
+@pytest.fixture
+def electricity_import_usage():
+    return SimpleNamespace(
+        energy_type='electricity',
+        direction='import',
+        meter_point='mpan',
+        meter_serial='serial_number',
+        unit='kWh',
+    )
+
+
+@pytest.fixture
+def gas_import_usage():
+    return SimpleNamespace(
+        energy_type='gas',
+        direction='import',
+        meter_point='mprn',
+        meter_serial='serial_number',
+        unit='m3',
+    )
+
 
 def test_load_config(load_example_config):
     # This also tests the validation of each of these valid config items:
@@ -67,12 +85,15 @@ def test_iso8601_from_datetime():
     assert octo2influx.iso8601_from_datetime(london.localize(datetime(2024, 1, 10, 00, 30, 0))) == '2024-01-10T00:30:00Z'
 
 
-def     test_std_unit_rate_to_points_long_point_validity(load_example_config):
+def test_std_unit_rate_to_points_long_point_validity(
+        load_example_config, flux_import_tariff):
     row = {'value_exc_vat': 34.7988, 'value_inc_vat': 36.53874, 'valid_from': '2023-03-31T23:00:00Z', 'valid_to': '2024-01-01T00:00:00Z', 'payment_method': None}
     london = pytz.timezone('Europe/London')
     from_dt = london.localize(datetime(2023, 12, 17, 00, 00))
     to_dt = london.localize(datetime(2023, 12, 22, 23, 59, 59))
-    points = octo2influx.std_unit_rate_to_points('octopus-tariffs', row, 'standing-charges', 'p/day', cfg['tariffs'][3], from_dt, to_dt)
+    points = octo2influx.std_unit_rate_to_points(
+        'octopus-tariffs', row, 'standing-charges', 'p/day',
+        flux_import_tariff, from_dt, to_dt)
     expected_str_points = [
         # one point per day from from_dt (2023-12-17) to valid_to (2024-01-01T00:00):
         'octopus-tariffs,direction=import,display_name=Octopus\\ Flux\\ Import,energy_type=electricity,price_type=standing-charges,product_code=FLUX-IMPORT-23-02-14,tariff_code=E-1R-FLUX-IMPORT-23-02-14-C p/day_exc_vat=34.7988,p/day_inc_vat=36.53874 1702771200000000000',
@@ -95,12 +116,15 @@ def     test_std_unit_rate_to_points_long_point_validity(load_example_config):
     assert [p.to_line_protocol() for p in points] == expected_str_points
 
 
-def test_std_unit_rate_to_points_short_point_validity(load_example_config):
+def test_std_unit_rate_to_points_short_point_validity(
+        load_example_config, flux_import_tariff):
     row = {'value_exc_vat': 37.9043, 'value_inc_vat': 39.799515, 'valid_from': '2023-12-19T16:00:00Z', 'valid_to': '2023-12-19T19:00:00Z', 'payment_method': None}
     london = pytz.timezone('Europe/London')
     from_dt = london.localize(datetime(2023, 12, 17, 00, 00))
     to_dt = london.localize(datetime(2023, 12, 22, 23, 59, 59))
-    points = octo2influx.std_unit_rate_to_points('octopus-tariffs', row, "standard-unit-rates", "p/kWh", cfg['tariffs'][3], from_dt, to_dt)
+    points = octo2influx.std_unit_rate_to_points(
+        'octopus-tariffs', row, "standard-unit-rates", "p/kWh",
+        flux_import_tariff, from_dt, to_dt)
     expected_str_points = [
         'octopus-tariffs,direction=import,display_name=Octopus\\ Flux\\ Import,energy_type=electricity,price_type=standard-unit-rates,product_code=FLUX-IMPORT-23-02-14,tariff_code=E-1R-FLUX-IMPORT-23-02-14-C p/kWh_exc_vat=37.9043,p/kWh_inc_vat=39.799515 1703001600000000000',
         'octopus-tariffs,direction=import,display_name=Octopus\\ Flux\\ Import,energy_type=electricity,price_type=standard-unit-rates,product_code=FLUX-IMPORT-23-02-14,tariff_code=E-1R-FLUX-IMPORT-23-02-14-C p/kWh_exc_vat=37.9043,p/kWh_inc_vat=39.799515 1703012399000000000'
@@ -108,20 +132,23 @@ def test_std_unit_rate_to_points_short_point_validity(load_example_config):
     assert [p.to_line_protocol() for p in points] == expected_str_points
 
 
-def test_consumption_to_point(load_example_config):
+def test_consumption_to_point(electricity_import_usage):
     row = {'consumption': 1.214, 'interval_start': '2023-12-19T04:30:00Z', 'interval_end': '2023-12-19T05:00:00Z'}
-    point = octo2influx.consumption_to_point('octopus-usage', row, cfg['usage'][0])
+    point = octo2influx.consumption_to_point(
+        'octopus-usage', row, electricity_import_usage)
     expected_point_str = 'octopus-usage,direction=import,energy_type=electricity,meter_point=mpan,meter_serial=serial_number interval_end=1702962000,interval_start=1702960200,kWh=1.214 1702961100000000000'
     assert point.to_line_protocol() == expected_point_str
 
-def test_consumption_to_point_electricty_summer(load_example_config):
+def test_consumption_to_point_electricity_summer(electricity_import_usage):
     row = {'consumption': 0.001, 'interval_start': '2023-08-30T00:00:00+01:00', 'interval_end': '2023-08-30T00:30:00+01:00'}
-    point = octo2influx.consumption_to_point('octopus-usage', row, cfg['usage'][0])
+    point = octo2influx.consumption_to_point(
+        'octopus-usage', row, electricity_import_usage)
     expected_point_str = 'octopus-usage,direction=import,energy_type=electricity,meter_point=mpan,meter_serial=serial_number interval_end=1693351800,interval_start=1693350000,kWh=0.001 1693350900000000000'
     assert point.to_line_protocol() == expected_point_str
 
-def test_consumption_to_point_gas(load_example_config):
+def test_consumption_to_point_gas(gas_import_usage):
     row = {'consumption': 0.0, 'interval_start': '2023-12-14T23:30:00Z', 'interval_end': '2023-12-15T00:00:00Z'}
-    point = octo2influx.consumption_to_point('octopus-usage', row, cfg['usage'][2])
+    point = octo2influx.consumption_to_point(
+        'octopus-usage', row, gas_import_usage)
     expected_point_str = 'octopus-usage,direction=import,energy_type=gas,meter_point=mprn,meter_serial=serial_number interval_end=1702598400,interval_start=1702596600,m3=0 1702597500000000000'
     assert point.to_line_protocol() == expected_point_str

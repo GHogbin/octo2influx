@@ -1,4 +1,7 @@
 .vscode
 **/.coverage
+**/.pytest_cache
+**/.venv*
 **/__pycache__
+**/*.pyc
 **/config.yaml

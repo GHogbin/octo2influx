@@ -2,15 +2,17 @@
 
 from influxdb_client_3 import InfluxDBClient3, Point
 import dateutil.parser
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import pytz
 import requests
-from urllib import parse
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import argparse
 import confuse
 from dataclasses import dataclass
 from os import path
 import logging
+from typing import Any, Callable
 
 PROGNAME = 'octo2influx'
 
@@ -18,13 +20,13 @@ logging.basicConfig(level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S', style='{',
                     format='{asctime} {levelname:>7} {filename}:{lineno:3}: {message}')
 
 
-@dataclass
+@dataclass(frozen=True)
 class Parameter:
-    arg_type: type
-    cfg_type: confuse.Template
+    arg_type: Callable[[str], Any] | type
+    cfg_type: Any
     help: str
-    default: any = None
-    validator: callable = None
+    default: Any = None
+    validator: Callable[[Any], bool] | None = None
 
 
 confuse_usage_template = {
@@ -49,7 +51,7 @@ confuse_tariff_template = {
 
 def _secret_unsafe_on_cmdline(val: str):
     raise argparse.ArgumentTypeError(
-        'Do not set secrets on the command line as it is not safe: they may be recorded in your shell history, system audit, etc. Use a access-restricted configuration file, or environment variables (e.g. when using Docker Compose).')
+        'Do not set secrets on the command line as it is not safe: they may be recorded in your shell history, system audit, etc. Use an access-restricted configuration file, or environment variables (e.g. when using Docker Compose).')
 
 
 def _config_only(val: str):
@@ -59,10 +61,12 @@ def _config_only(val: str):
 
 params = {
     # Runtime parameters:
-    'from_max_days_ago': Parameter(int, int, 'Get Octopus data from the last retrieved timestamp, but no more than this many days ago.', default=600, validator=lambda x: x >= 0),
+    'from_max_days_ago': Parameter(int, int, 'Get Octopus data from the last retrieved timestamp, but no more than this many days ago.', default=60, validator=lambda x: x >= 0),
     'from_days_ago': Parameter(int, int, 'Get Octopus data from that many days ago (0 means today). If set, this overrides from_max_days_ago.', validator=lambda x: x >= 0),
     'to_days_ago': Parameter(int, int, 'Get Octopus data until that many days ago (0 means today).', default=0, validator=lambda x: x >= 0),
     'loglevel': Parameter(str, confuse.Choice(['INFO', 'DEBUG', 'WARNING', 'ERROR']), 'Level of logs (INFO, DEBUG, WARNING, ERROR).', default='INFO'),
+    'request_timeout_seconds': Parameter(int, int, 'Timeout in seconds for each Octopus API request.', default=30, validator=lambda x: x > 0),
+    'request_max_retries': Parameter(int, int, 'Number of retries for transient Octopus API failures.', default=4, validator=lambda x: x >= 0),
 
     # Octopus settings:
     'timezone': Parameter(str, str, 'Timezone of the Octopus account (e.g. where you live). Most likely always "Europe/London".', default="Europe/London"),
@@ -78,6 +82,7 @@ params = {
     'influx_usage_measurement': Parameter(str, str, 'InfluxDB 3 table (measurement) name to store consumption data into.'),
     'influx_url': Parameter(str, str, 'URL of the InfluxDB 3 instance to store the data into (e.g. "http://localhost:8181")'),
     'influx_api_token': Parameter(_secret_unsafe_on_cmdline, str, '(**Config file or environment only**) The API Token to connect to the InfluxDB 3 instance.'),
+    'influx_write_batch_size': Parameter(int, int, 'Maximum points written in each InfluxDB request.', default=5000, validator=lambda x: x > 0),
 }
 
 argparse_description = '''
@@ -116,10 +121,13 @@ class ValidatedConfiguration(confuse.Configuration):
         value = super().__getitem__(key).get(self.params[key].cfg_type)
         if self.params[key].validator:
             try:
-                self.params[key].validator(value)
+                is_valid = self.params[key].validator(value)
             except Exception as e:
                 raise TypeError(
                     f"Configuration key '{key}' has an invalid value: {value}") from e
+            if not is_valid:
+                raise TypeError(
+                    f"Configuration key '{key}' has an invalid value: {value}")
 
         return value
 
@@ -141,10 +149,37 @@ def get_url_of_consumption(base_url: str, usage: confuse.templates.AttrDict) -> 
     return f"{base_url}/{usage.energy_type}-meter-points/{usage.meter_point}/meters/{usage.meter_serial}/consumption/"
 
 
+def create_http_session(max_retries: int) -> requests.Session:
+    """Create an HTTP session that retries transient GET failures."""
+    retries = Retry(
+        total=max_retries,
+        connect=max_retries,
+        read=max_retries,
+        status=max_retries,
+        allowed_methods=frozenset({'GET'}),
+        status_forcelist=(429, 500, 502, 503, 504),
+        backoff_factor=1,
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session = requests.Session()
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
+
+
 def retrieve_paginated_data(
-        api_key, url, from_iso8601, to_iso8601, page=None
-):
-    if page is None and from_iso8601 >= to_iso8601:
+        api_key: str,
+        url: str,
+        from_iso8601: str,
+        to_iso8601: str,
+        session: requests.Session | None = None,
+        timeout_seconds: int = 30,
+) -> list[dict]:
+    """Retrieve every page in an Octopus API time range."""
+    if (dateutil.parser.isoparse(from_iso8601) >=
+            dateutil.parser.isoparse(to_iso8601)):
         # Nothing new to fetch: the last stored point is already at (or after)
         # the requested `to` time. Octopus returns 400 for an empty/inverted
         # range, so we skip the request and return no results.
@@ -152,39 +187,58 @@ def retrieve_paginated_data(
             f'       ... nothing new to retrieve '
             f'(from {from_iso8601} >= to {to_iso8601}).')
         return []
-    args = {
+
+    request_session = session or create_http_session(max_retries=0)
+    close_session = session is None
+    current_url = url
+    current_params = {
         'period_from': from_iso8601,
         'period_to': to_iso8601,
     }
-    if page:
-        args['page'] = page
-    else:
-        if cfg['loglevel'] in ['INFO', 'DEBUG']:
-            # logging expects full messages, not dot progress, so we print() instead:
-            print('    progress (one dot per page) ', end='', flush=True)
-    response = requests.get(url, params=args, auth=(api_key, ''))
-    response.raise_for_status()
-    data = response.json()
-    results = data.get('results', [])
-    if cfg['loglevel'] in ['INFO', 'DEBUG']:
-        print('.', end='', flush=True)
-    if data['next']:
-        url_query = parse.urlparse(data['next']).query
-        next_page = parse.parse_qs(url_query)['page'][0]
-        results += retrieve_paginated_data(
-            api_key, url, from_iso8601, to_iso8601, next_page
-        )
-    if not page and cfg['loglevel'] in ['INFO', 'DEBUG']:
-        print('\n', end='', flush=True)
+    results = []
+    show_progress = logging.getLogger().isEnabledFor(logging.INFO)
+
+    if show_progress:
+        print('    progress (one dot per page) ', end='', flush=True)
+
+    try:
+        while current_url:
+            response = request_session.get(
+                current_url,
+                params=current_params,
+                auth=(api_key, ''),
+                timeout=timeout_seconds,
+            )
+            response.raise_for_status()
+            data = response.json()
+            page_results = data.get('results')
+            if not isinstance(page_results, list):
+                raise ValueError(
+                    f'Octopus API response from {current_url} has no results list.')
+
+            results.extend(page_results)
+            current_url = data.get('next')
+            if current_url is not None and not isinstance(current_url, str):
+                raise ValueError(
+                    f'Octopus API response from {url} has an invalid next link.')
+            current_params = None
+
+            if show_progress:
+                print('.', end='', flush=True)
+    finally:
+        if show_progress:
+            print()
+        if close_session:
+            request_session.close()
+
     return results
 
 
 def std_unit_rate_to_points(measurement: str, row: dict, price_type: str, unit: str, tariff: confuse.templates.AttrDict, from_dt: datetime, to_dt: datetime) -> list[Point]:
     """Convert a single Octopus API rate datapoint into multiple InfluxDB points for easier querying and charting.
 
-    Given an Octopus datapoint:
-    - if the price has an expiry date: add two influxdb points at times _valid_from and _valid_to-1s.
-    - otherwise add one influxdb point per day
+    Points are emitted at the validity boundaries and once per local calendar
+    day so dashboard queries can carry a long-lived fixed rate forward.
     """
 
     # Example data from the Octopus API:
@@ -229,6 +283,7 @@ def std_unit_rate_to_points(measurement: str, row: dict, price_type: str, unit: 
         valid_to = dateutil.parser.isoparse(
             row["valid_to"])-timedelta(seconds=1)
 
+    cfg_timezone = pytz.timezone(cfg['timezone'])
     to_nextday_dt = valid_to + timedelta(days=1)
     points = []
     cur_dt = valid_from
@@ -236,8 +291,12 @@ def std_unit_rate_to_points(measurement: str, row: dict, price_type: str, unit: 
         if cur_dt >= from_dt - timedelta(days=1):
             points.append(rate2point(cur_dt))
 
-        cur_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        cur_dt += timedelta(days=1)
+        next_local_date = (
+            cur_dt.astimezone(cfg_timezone).date() + timedelta(days=1)
+        )
+        cur_dt = cfg_timezone.localize(
+            datetime.combine(next_local_date, datetime.min.time())
+        )
 
         if cur_dt > valid_to:
             points.append(rate2point(valid_to))
@@ -278,8 +337,9 @@ def iso8601_from_datetime(dt: datetime) -> str:
 
 def datetime_days_ago(days_ago: int, time_of_day: datetime.time) -> datetime:
     """Return the timestamp of days_ago days ago from today at time_of_day."""
-    d = datetime.now().date() - timedelta(days=days_ago)
-    return pytz.timezone(cfg['timezone']).localize(datetime.combine(d, time_of_day))
+    cfg_timezone = pytz.timezone(cfg['timezone'])
+    d = datetime.now(cfg_timezone).date() - timedelta(days=days_ago)
+    return cfg_timezone.localize(datetime.combine(d, time_of_day))
 
 
 def datetime_from_days_ago(days_ago: int) -> datetime:
@@ -292,24 +352,50 @@ def datetime_to_days_ago(days_ago: int) -> datetime:
     return datetime_days_ago(days_ago, datetime.max.time())
 
 
+def quote_sql_identifier(identifier: str) -> str:
+    """Quote an InfluxDB SQL identifier."""
+    if not identifier:
+        raise ValueError('SQL identifiers cannot be empty.')
+    return f'"{identifier.replace(chr(34), chr(34) * 2)}"'
+
+
+def quote_sql_string(value: str) -> str:
+    """Quote an InfluxDB SQL string literal."""
+    return f"'{value.replace(chr(39), chr(39) * 2)}'"
+
+
+def _read_query_result(result):
+    """Return a pyarrow table from either supported query result shape."""
+    return result.read_all() if hasattr(result, "read_all") else result
+
+
+def list_influx_measurements(client: InfluxDBClient3) -> set[str]:
+    """Return the measurements currently present in the configured database."""
+    result = client.query(
+        query='''
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'iox'
+        ''',
+        language='sql',
+    )
+    table = _read_query_result(result)
+    if not table.num_rows:
+        return set()
+    return set(table.column('table_name').to_pylist())
+
+
 def query_last_datetime(client: InfluxDBClient3,
                         sql: str, from_max_days_ago: int) -> datetime:
     """Return the timestamp of the most recent point matching the SQL query.
 
     The SQL query must select a single column aliased `last_time` (e.g.
     MAX("time")). The function will look for data at most from_max_days_ago old.
-    If none is found (or the table does not exist yet), it returns the
-    timestamp from from_max_days_ago.
+    If no matching row is found, it returns the timestamp from
+    from_max_days_ago. Query failures are surfaced to the caller.
     """
-    try:
-        result = client.query(query=sql, language="sql")
-    except Exception as e:
-        # The table might not exist yet, e.g. on the very first run:
-        logging.debug(f"Query failed, assuming no existing data: {e}")
-        return datetime_from_days_ago(from_max_days_ago)
-
-    # client.query() may return a pyarrow.Table or a stream reader:
-    table = result.read_all() if hasattr(result, "read_all") else result
+    result = client.query(query=sql, language="sql")
+    table = _read_query_result(result)
     last_dt = table.column("last_time")[0].as_py() if table.num_rows else None
     if last_dt is None:
         return datetime_from_days_ago(from_max_days_ago)
@@ -329,12 +415,13 @@ def tariff_last_datetime(client: InfluxDBClient3,
     The function will look for data at most from_max_days_ago old. If none is found,
     it will return the timestamp from from_max_days_ago.
     """
+    measurement = quote_sql_identifier(influx_measurement)
     sql = f'''
         SELECT MAX("time") AS last_time
-        FROM "{influx_measurement}"
-        WHERE "energy_type" = '{energy_type}'
-          AND "price_type" = '{price_type}'
-          AND "tariff_code" = '{tariff_code}'
+        FROM {measurement}
+        WHERE "energy_type" = {quote_sql_string(energy_type)}
+          AND "price_type" = {quote_sql_string(price_type)}
+          AND "tariff_code" = {quote_sql_string(tariff_code)}
           AND "time" >= now() - INTERVAL '{from_max_days_ago} days'
     '''
     return query_last_datetime(client, sql, from_max_days_ago)
@@ -350,16 +437,24 @@ def consumption_last_iso8601(client: InfluxDBClient3,
     The function will look for data at most from_max_days_ago old. If none is found,
     it will return the timestamp from from_max_days_ago.
     """
+    measurement = quote_sql_identifier(influx_measurement)
     sql = f'''
         SELECT MAX("time") AS last_time
-        FROM "{influx_measurement}"
-        WHERE "direction" = '{direction}'
-          AND "meter_point" = '{meter_point}'
-          AND "meter_serial" = '{meter_serial}'
+        FROM {measurement}
+        WHERE "direction" = {quote_sql_string(direction)}
+          AND "meter_point" = {quote_sql_string(meter_point)}
+          AND "meter_serial" = {quote_sql_string(meter_serial)}
           AND "time" >= now() - INTERVAL '{from_max_days_ago} days'
     '''
     last_dt = query_last_datetime(client, sql, from_max_days_ago)
     return iso8601_from_datetime(last_dt)
+
+
+def write_points(client: InfluxDBClient3, points: list[Point],
+                 batch_size: int) -> None:
+    """Write points in bounded batches."""
+    for start in range(0, len(points), batch_size):
+        client.write(record=points[start:start + batch_size])
 
 
 def build_argparser(params: dict[str, Parameter]) -> argparse.ArgumentParser:
@@ -370,14 +465,12 @@ def build_argparser(params: dict[str, Parameter]) -> argparse.ArgumentParser:
         epilog=argparse_epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     for name, parameter in params.items():
-        # Only use the parameter.default if the setting wasn't present
-        # in the config file, or the config file setting would be ignored:
-        default = parameter.default
-        if parameter.default:
+        default = argparse.SUPPRESS
+        if parameter.default is not None:
             try:
                 default = cfg[name]
             except confuse.exceptions.NotFoundError:
-                pass
+                default = parameter.default
         parser.add_argument(
             f'--{name}', type=parameter.arg_type, help=parameter.help, default=default)
 
@@ -387,8 +480,196 @@ def build_argparser(params: dict[str, Parameter]) -> argparse.ArgumentParser:
 cfg = ValidatedConfiguration(params, PROGNAME, __name__)
 
 
-if __name__ == "__main__":
+def validate_configuration(parser: argparse.ArgumentParser) -> None:
+    """Validate required settings and relationships between them."""
+    required_keys = (
+        'base_url',
+        'octopus_api_key',
+        'price_types',
+        'usage',
+        'tariffs',
+        'influx_database',
+        'influx_tariff_measurement',
+        'influx_usage_measurement',
+        'influx_url',
+        'influx_api_token',
+        'timezone',
+        'from_max_days_ago',
+        'to_days_ago',
+        'request_timeout_seconds',
+        'request_max_retries',
+        'influx_write_batch_size',
+    )
+    try:
+        for key in required_keys:
+            cfg[key]
+        pytz.timezone(cfg['timezone'])
+    except (confuse.exceptions.ConfigError, TypeError,
+            pytz.UnknownTimeZoneError) as error:
+        parser.error(str(error))
 
+    try:
+        from_days_ago = cfg['from_days_ago']
+    except confuse.exceptions.NotFoundError:
+        from_days_ago = None
+
+    if (from_days_ago is not None and
+            from_days_ago < cfg['to_days_ago']):
+        parser.error(
+            'from_days_ago must be greater than or equal to to_days_ago.')
+
+
+def sync_data(client: InfluxDBClient3,
+              http_session: requests.Session) -> None:
+    """Retrieve configured Octopus data and write it to InfluxDB."""
+    to_dt = datetime_to_days_ago(cfg['to_days_ago'])
+    to_iso8601 = iso8601_from_datetime(to_dt)
+    try:
+        from_days_ago = cfg['from_days_ago']
+        configured_from_dt = datetime_from_days_ago(from_days_ago)
+        configured_from_iso8601 = iso8601_from_datetime(configured_from_dt)
+        logging.info(
+            f'`from_days_ago` is defined: retrieving from '
+            f'{from_days_ago} days ago.')
+    except confuse.exceptions.NotFoundError:
+        from_days_ago = None
+        configured_from_dt = None
+        configured_from_iso8601 = None
+
+    existing_measurements = list_influx_measurements(client)
+    usage_measurement = cfg['influx_usage_measurement']
+    tariff_measurement = cfg['influx_tariff_measurement']
+
+    logging.info('=== Retrieving consumption...')
+    for usage in cfg['usage']:
+        consumption_url = get_url_of_consumption(cfg['base_url'], usage)
+        logging.debug(f'API URL: {consumption_url}')
+
+        if configured_from_iso8601 is not None:
+            from_iso8601 = configured_from_iso8601
+        elif usage_measurement in existing_measurements:
+            from_iso8601 = consumption_last_iso8601(
+                client,
+                cfg['from_max_days_ago'],
+                usage_measurement,
+                usage.direction,
+                usage.meter_point,
+                usage.meter_serial,
+            )
+        else:
+            from_iso8601 = iso8601_from_datetime(
+                datetime_from_days_ago(cfg['from_max_days_ago'])
+            )
+
+        logging.info(
+            f'====== Retrieving {usage.energy_type} {usage.direction} '
+            f'({usage.meter_point}) from Octopus...')
+        logging.debug(f'from {from_iso8601} to {to_iso8601}')
+        data = retrieve_paginated_data(
+            cfg['octopus_api_key'],
+            consumption_url,
+            from_iso8601,
+            to_iso8601,
+            session=http_session,
+            timeout_seconds=cfg['request_timeout_seconds'],
+        )
+
+        logging.info(
+            f'       ... {len(data)} points retrieved from Octopus.')
+        logging.info(
+            f'====== Writing {usage.energy_type} {usage.direction} '
+            f'({usage.meter_point}) to Influx...')
+
+        # Octopus returns newest first. Writing oldest first ensures an
+        # interrupted backfill resumes from the latest successfully stored row.
+        points = [
+            consumption_to_point(usage_measurement, row, usage)
+            for row in reversed(data)
+        ]
+        if cfg['loglevel'] == 'DEBUG':
+            logging.debug(
+                '\n' + '\n'.join(p.to_line_protocol() for p in points)
+            )
+        write_points(client, points, cfg['influx_write_batch_size'])
+        if points:
+            existing_measurements.add(usage_measurement)
+        logging.info(
+            f'       ... {len(points)} points written to Influx.')
+
+    logging.info('=== Retrieving tariffs...')
+    for tariff in cfg['tariffs']:
+        for price_type, unit in cfg['price_types'].items():
+            url = get_url_of_tariff(cfg['base_url'], tariff, price_type)
+
+            if configured_from_dt is not None:
+                from_dt = configured_from_dt
+                from_iso8601 = configured_from_iso8601
+            elif tariff_measurement in existing_measurements:
+                from_dt = tariff_last_datetime(
+                    client,
+                    cfg['from_max_days_ago'],
+                    tariff_measurement,
+                    tariff.energy_type,
+                    price_type,
+                    tariff.tariff_code,
+                )
+                from_iso8601 = iso8601_from_datetime(from_dt)
+            else:
+                from_dt = datetime_from_days_ago(
+                    cfg['from_max_days_ago']
+                )
+                from_iso8601 = iso8601_from_datetime(from_dt)
+
+            logging.info(
+                f'====== Retrieving {tariff.energy_type} {price_type} '
+                f'price of tariff {tariff.full_name} from Octopus...')
+            logging.debug(f'from {from_iso8601} to {to_iso8601}')
+            data = retrieve_paginated_data(
+                cfg['octopus_api_key'],
+                url,
+                from_iso8601,
+                to_iso8601,
+                session=http_session,
+                timeout_seconds=cfg['request_timeout_seconds'],
+            )
+            if cfg['loglevel'] == 'DEBUG':
+                logging.debug(
+                    '\n' + '\n'.join(str(point) for point in data)
+                )
+            logging.info(
+                f'       ... {len(data)} points retrieved from Octopus.')
+            logging.info(
+                f'====== Writing {tariff.energy_type} {price_type} '
+                f'price of tariff {tariff.full_name} to Influx...')
+            logging.debug(f'from {from_dt} to {to_dt}')
+
+            points = []
+            for row in reversed(data):
+                points.extend(std_unit_rate_to_points(
+                    tariff_measurement,
+                    row,
+                    price_type,
+                    unit,
+                    tariff,
+                    from_dt,
+                    to_dt,
+                ))
+
+            if cfg['loglevel'] == 'DEBUG':
+                logging.debug(
+                    '\n' + '\n'.join(p.to_line_protocol() for p in points)
+                )
+            write_points(client, points, cfg['influx_write_batch_size'])
+            if points:
+                existing_measurements.add(tariff_measurement)
+            logging.info(
+                f'       ... {len(points)} points written to Influx '
+                '(including any extra points for easier querying and '
+                'better charting).')
+
+
+def main() -> None:
+    """Load configuration and run one synchronization."""
     # Confuse automatically tries to load config.yaml from a number of
     # locations. Also try to load a config file in the same directory:
     local_config_path = path.join(path.realpath(
@@ -403,117 +684,20 @@ if __name__ == "__main__":
     parser = build_argparser(params)
     args = parser.parse_args()
     cfg.set_args(args)
-
     cfg.set_env()
-
+    validate_configuration(parser)
     logging.root.setLevel(cfg['loglevel'])
 
     if read_local_config:
         logging.info(f'Read configuration from {local_config_path}.')
-    else:
-        # Check confuse did load a config file ok
-        try:
-            if not cfg['price_types']:
-                raise ValueError
-        except (confuse.exceptions.NotFoundError, ValueError):
-            configfile_paths = [
-                local_config_path,
-                path.join(f'/etc', PROGNAME, confuse.CONFIG_FILENAME),
-                path.join(path.expanduser('~/.config/'),
-                            PROGNAME, confuse.CONFIG_FILENAME)
-            ]
-            raise SystemExit(
-                    'Configuration key "price_types" was not found or empty. '
-                f'Please check you have a valid configuration file at one of {configfile_paths}.')
 
-    to_dt = datetime_to_days_ago(cfg['to_days_ago'])
-    to_iso8601 = iso8601_from_datetime(to_dt)
-    try:
-        from_days_ago = cfg['from_days_ago']
-        from_dt = datetime_from_days_ago(from_days_ago)
-        from_iso8601 = iso8601_from_datetime(from_dt)
-        logging.info(
-            f'`from_days_ago` is defined: retrieving from {from_days_ago} days ago.')
-    except confuse.exceptions.NotFoundError:
-        from_days_ago = None
-
-    client = InfluxDBClient3(host=cfg['influx_url'],
-                             token=cfg['influx_api_token'],
-                             database=cfg['influx_database'])
-
-    # Get consumption
-    logging.info('=== Retrieving consumption...')
-    for usage in cfg['usage']:
-        consumption_url = get_url_of_consumption(cfg['base_url'], usage)
-        logging.debug(f'API URL: {consumption_url}')
-
-        if from_days_ago is None:
-            from_iso8601 = consumption_last_iso8601(
-                client, cfg['from_max_days_ago'],
-                cfg['influx_usage_measurement'], usage.direction,
-                usage.meter_point, usage.meter_serial)
-
-        logging.info(f'====== Retrieving {usage.energy_type} {usage.direction} ({usage.meter_point}) from Octopus...')
-        logging.debug(f"from {from_iso8601} to {to_iso8601}")
-        data = retrieve_paginated_data(
-            cfg['octopus_api_key'], consumption_url, from_iso8601, to_iso8601)
-
-        logging.info(
-            f'       ... {len(data)} points retrieved from Octopus.')
-
-        logging.info(f'====== Writing {usage.energy_type} {usage.direction} ({usage.meter_point}) to Influx...')
-        points = []
-        # we receive the data from Octopus from newest to oldest - we reverse this:
-        # (in particular this ensures we won't have a gap if we fail in the middle
-        # of writing and then start again from the newest written point)
-        for row in reversed(data):
-            points.append(consumption_to_point(
-                cfg['influx_usage_measurement'], row, usage))
-
-        if cfg['loglevel'] == 'DEBUG':
-            logging.debug("\n" + "\n".join([p.to_line_protocol() for p in points]))
-
-        if points:
-            client.write(record=points)
-        logging.info(
-            f'       ... {len(points)} points written to Influx.')
+    with create_http_session(cfg['request_max_retries']) as http_session:
+        with InfluxDBClient3(
+                host=cfg['influx_url'],
+                token=cfg['influx_api_token'],
+                database=cfg['influx_database']) as client:
+            sync_data(client, http_session)
 
 
-    logging.info('=== Retrieving tariffs...')
-    for tariff in cfg['tariffs']:
-        for price_type, unit in cfg['price_types'].items():
-            url = get_url_of_tariff(cfg['base_url'], tariff, price_type)
-
-            if from_days_ago is None:
-                from_dt = tariff_last_datetime(
-                    client, cfg['from_max_days_ago'],
-                    cfg['influx_tariff_measurement'], tariff.energy_type, price_type, tariff.tariff_code)
-                from_iso8601 = iso8601_from_datetime(from_dt)
-
-            logging.info(f'====== Retrieving {tariff.energy_type} {price_type} price of tariff {tariff.full_name} from Octopus...')
-            logging.debug(f"from {from_iso8601} to {to_iso8601}")
-            data = retrieve_paginated_data(
-                cfg['octopus_api_key'], url, from_iso8601, to_iso8601)
-            if cfg['loglevel'] == 'DEBUG':
-                logging.debug("\n" + "\n".join([str(point) for point in data]))
-            logging.info(
-                f'       ... {len(data)} points retrieved from Octopus.')
-
-            logging.info(f'====== Writing {tariff.energy_type} {price_type} price of tariff {tariff.full_name} to Influx...')
-            logging.debug(f"from {from_dt} to {to_dt}")
-            points = []
-            # we receive the data from Octopus from newest to oldest - we reverse this:
-            # (in particular this ensures we won't have a gap if we fail in the middle
-            # of writing and then start again from the newest written point)
-            for r in reversed(data):
-                points.extend(std_unit_rate_to_points(
-                    cfg['influx_tariff_measurement'], r, price_type, unit, tariff, from_dt, to_dt))
-
-            if cfg['loglevel'] == 'DEBUG':
-                logging.debug("\n" + "\n".join([p.to_line_protocol() for p in points]))
-
-            if points:
-                client.write(record=points)
-            logging.info(
-                f'       ... {len(points)} points written to Influx '
-                '(including any extra points for easier querying and better charting).')
+if __name__ == "__main__":
+    main()
