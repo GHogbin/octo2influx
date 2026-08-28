@@ -13,7 +13,6 @@ services:
     # InfluxDB 3 Core requires the database to be created explicitly:
     #   docker compose exec influx influxdb3 create database octo2influx --token <token>
     command:
-      - influxdb3
       - serve
       - --node-id=node0
       - --object-store=file

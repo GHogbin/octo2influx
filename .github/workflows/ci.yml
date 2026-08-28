@@ -59,13 +59,14 @@ jobs:
           printf '{"token":"%s","name":"ci-admin","description":"CI integration token"}\n' \
             "$token" > "$RUNNER_TEMP/influx-admin-token.json"
           chmod 600 "$RUNNER_TEMP/influx-admin-token.json"
+          sudo chown 1500:1500 "$RUNNER_TEMP/influx-admin-token.json"
 
           docker run --detach \
             --name octo2influx-integration-influx \
             --publish 8181:8181 \
             --volume "$RUNNER_TEMP/influx-admin-token.json:/run/secrets/admin-token:ro" \
             influxdb:3.11.2-core \
-            influxdb3 serve \
+            serve \
             --node-id=ci \
             --object-store=memory \
             --admin-token-file=/run/secrets/admin-token

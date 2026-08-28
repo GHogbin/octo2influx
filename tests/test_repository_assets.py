@@ -34,6 +34,8 @@ def test_compose_defaults_are_local_and_authenticated():
     services = compose['services']
 
     assert services['influx']['image'].endswith('3.11.2-core}')
+    assert services['influx']['command'][0] == 'serve'
+    assert 'influxdb3' not in services['influx']['command']
     assert services['grafana']['image'].endswith('13.0.7}')
     assert services['influx']['ports'][0].startswith('127.0.0.1:')
     assert services['grafana']['ports'][0].startswith('127.0.0.1:')
