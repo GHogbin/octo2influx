@@ -431,6 +431,18 @@ def list_influx_measurements(client: InfluxDBClient3) -> set[str]:
     return set(table.column('table_name').to_pylist())
 
 
+def _query_last_datetime(
+        client: InfluxDBClient3,
+        sql: str,
+) -> datetime | None:
+    result = client.query(query=sql, language="sql")
+    table = _read_query_result(result)
+    last_dt = table.column("last_time")[0].as_py() if table.num_rows else None
+    if last_dt is not None and last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    return last_dt
+
+
 def query_last_datetime(client: InfluxDBClient3,
                         sql: str, from_max_days_ago: int) -> datetime:
     """Return the timestamp of the most recent point matching the SQL query.
@@ -440,15 +452,34 @@ def query_last_datetime(client: InfluxDBClient3,
     If no matching row is found, it returns the timestamp from
     from_max_days_ago. Query failures are surfaced to the caller.
     """
-    result = client.query(query=sql, language="sql")
-    table = _read_query_result(result)
-    last_dt = table.column("last_time")[0].as_py() if table.num_rows else None
+    last_dt = _query_last_datetime(client, sql)
     if last_dt is None:
         return datetime_from_days_ago(from_max_days_ago)
-    # InfluxDB returns UTC timestamps; make sure they are timezone-aware:
-    if last_dt.tzinfo is None:
-        last_dt = last_dt.replace(tzinfo=timezone.utc)
     return last_dt
+
+
+def query_last_datetime_in_windows(
+        client: InfluxDBClient3,
+        sql: str,
+        from_max_days_ago: int,
+        window_hours: int = 6,
+) -> datetime:
+    """Find the latest legacy point without scanning every Parquet file."""
+    total_hours = from_max_days_ago * 24
+    for newer_hours_ago in range(0, total_hours, window_hours):
+        older_hours_ago = min(
+            newer_hours_ago + window_hours,
+            total_hours,
+        )
+        window_sql = f'''
+            {sql}
+              AND "time" >= now() - INTERVAL '{older_hours_ago} hours'
+              AND "time" < now() - INTERVAL '{newer_hours_ago} hours'
+        '''
+        last_dt = _query_last_datetime(client, window_sql)
+        if last_dt is not None:
+            return last_dt
+    return datetime_from_days_ago(from_max_days_ago)
 
 
 def tariff_last_datetime(client: InfluxDBClient3,
@@ -468,9 +499,9 @@ def tariff_last_datetime(client: InfluxDBClient3,
         WHERE "energy_type" = {quote_sql_string(energy_type)}
           AND "price_type" = {quote_sql_string(price_type)}
           AND "tariff_code" = {quote_sql_string(tariff_code)}
-          AND "time" >= now() - INTERVAL '{from_max_days_ago} days'
     '''
-    return query_last_datetime(client, sql, from_max_days_ago)
+    return query_last_datetime_in_windows(
+        client, sql, from_max_days_ago)
 
 
 def consumption_last_iso8601(client: InfluxDBClient3,
@@ -490,9 +521,9 @@ def consumption_last_iso8601(client: InfluxDBClient3,
         WHERE "direction" = {quote_sql_string(direction)}
           AND "meter_point" = {quote_sql_string(meter_point)}
           AND "meter_serial" = {quote_sql_string(meter_serial)}
-          AND "time" >= now() - INTERVAL '{from_max_days_ago} days'
     '''
-    last_dt = query_last_datetime(client, sql, from_max_days_ago)
+    last_dt = query_last_datetime_in_windows(
+        client, sql, from_max_days_ago)
     return iso8601_from_datetime(last_dt)
 
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock
 
 from freezegun import freeze_time
@@ -26,6 +26,17 @@ class FakeColumn:
 
     def to_pylist(self):
         return self.values
+
+    def __getitem__(self, index):
+        return FakeScalar(self.values[index])
+
+
+class FakeScalar:
+    def __init__(self, value):
+        self.value = value
+
+    def as_py(self):
+        return self.value
 
 
 class FakeTable:
@@ -159,6 +170,34 @@ def test_query_last_datetime_surfaces_query_failures():
             'SELECT MAX("time") AS last_time FROM "usage"',
             60,
         )
+
+
+def test_consumption_last_datetime_uses_bounded_recent_windows():
+    client = Mock()
+    latest = datetime(2026, 8, 27, 22, 30, tzinfo=timezone.utc)
+    client.query.side_effect = [
+        FakeTable({'last_time': [None]}),
+        FakeTable({'last_time': [latest]}),
+    ]
+
+    result = octo2influx.consumption_last_iso8601(
+        client,
+        60,
+        'octopus-usage',
+        'import',
+        'meter-point',
+        'meter-serial',
+    )
+
+    assert result == '2026-08-27T22:30:00Z'
+    assert client.query.call_count == 2
+    first_query = client.query.call_args_list[0].kwargs['query']
+    second_query = client.query.call_args_list[1].kwargs['query']
+    assert '''INTERVAL '6 hours' '''.strip() in first_query
+    assert '''INTERVAL '0 hours' '''.strip() in first_query
+    assert '''INTERVAL '12 hours' '''.strip() in second_query
+    assert '''INTERVAL '6 hours' '''.strip() in second_query
+    assert '''INTERVAL '60 days' '''.strip() not in first_query
 
 
 def test_sql_quoting_handles_configured_names():
