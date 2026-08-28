@@ -291,12 +291,12 @@ def std_unit_rate_to_points(measurement: str, row: dict, price_type: str, unit: 
     Points are emitted at the validity boundaries and once per local calendar
     day so dashboard queries can carry a long-lived fixed rate forward.
     """
-    source_valid_from = dateutil.parser.isoparse(row['valid_from'])
-    source_valid_to = (
-        dateutil.parser.isoparse(row['valid_to'])
-        if row.get('valid_to') else None
+    source_valid_from = parse_optional_datetime(row.get('valid_from'))
+    source_valid_to = parse_optional_datetime(row.get('valid_to'))
+    valid_from = (
+        max(from_dt, source_valid_from)
+        if source_valid_from is not None else from_dt
     )
-    valid_from = max(from_dt, source_valid_from)
     valid_to = min(
         to_dt,
         (
@@ -320,8 +320,10 @@ def std_unit_rate_to_points(measurement: str, row: dict, price_type: str, unit: 
             .field("value_inc_vat", float(row["value_inc_vat"]))\
             .field("value_exc_vat", float(row["value_exc_vat"]))\
             .field("unit", unit)\
-            .field("source_valid_from", source_valid_from.isoformat())\
             .time(tstamp)
+        if source_valid_from is not None:
+            point.field(
+                "source_valid_from", source_valid_from.isoformat())
         if source_valid_to is not None:
             point.field("source_valid_to", source_valid_to.isoformat())
         if row.get('payment_method'):
@@ -948,9 +950,8 @@ def effective_tariff_range(
 def rate_coverage_end(rows: list[dict], to_dt: datetime) -> datetime | None:
     coverage = []
     for row in rows:
-        valid_from = parse_optional_datetime(row.get('valid_from'))
         valid_to = parse_optional_datetime(row.get('valid_to'))
-        if valid_to is None and valid_from is not None:
+        if valid_to is None:
             coverage.append(to_dt)
         elif valid_to is not None:
             coverage.append(min(valid_to, to_dt))
@@ -1209,7 +1210,12 @@ def sync_data(
                                 cost_measurement, row, plan)
                             if point is not None:
                                 cost_points.append(point)
-                            elif plan.tariff.applies_at(interval_start):
+                            elif (
+                                    plan.tariff.applies_at(interval_start)
+                                    and plan.rate_book.covers_at(
+                                        plan.price_type_at(interval_start),
+                                        interval_start,
+                                    )):
                                 missing_rates += 1
 
                         if missing_rates:

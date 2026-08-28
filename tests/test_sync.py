@@ -73,16 +73,25 @@ class FakeOctopusClient:
 class MultiPageMissingRateClient(FakeOctopusClient):
     def rate_pages(self, _tariff, price_type, _from, _to):
         value = 25 if price_type == 'standard-unit-rates' else 40
-        yield ApiPage([{
-            **rate_row(value),
-            'valid_from': '2024-01-02T00:00:00Z',
-        }], 1, 1)
+        rows = [rate_row(value)]
+        if price_type == 'standard-unit-rates':
+            rows = [
+                {
+                    **rate_row(value),
+                    'valid_to': '2024-01-02T00:00:00Z',
+                },
+                {
+                    **rate_row(value),
+                    'valid_from': '2024-01-03T00:00:00Z',
+                },
+            ]
+        yield ApiPage(rows, 1, 1)
 
     def consumption_pages(self, _usage, _from, _to):
         yield ApiPage([
             consumption_row(
-                '2024-01-01T00:00:00Z',
-                '2024-01-01T00:30:00Z',
+                '2024-01-02T00:00:00Z',
+                '2024-01-02T00:30:00Z',
             ),
         ], 1, 2)
         yield ApiPage([

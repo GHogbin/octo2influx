@@ -84,6 +84,51 @@ def test_rate_book_selects_rate_by_validity():
     assert second.value_inc_vat == 30
 
 
+def test_rate_book_supports_unbounded_rate_start():
+    book = RateBook()
+    book.add_rows(STANDING_CHARGE, [
+        rate_row(48, valid_from=None),
+    ])
+    timestamp = datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
+
+    rate = book.rate_at(STANDING_CHARGE, timestamp)
+
+    assert rate.value_inc_vat == 48
+    assert book.has_rate_at(STANDING_CHARGE, timestamp)
+
+
+def test_rate_book_reports_timestamp_outside_published_coverage():
+    book = RateBook()
+    book.add_rows(STANDARD_UNIT_RATE, [
+        rate_row(20, valid_from='2024-01-02T00:00:00Z'),
+    ])
+
+    assert not book.has_rate_at(
+        STANDARD_UNIT_RATE,
+        datetime(2024, 1, 1, 12, tzinfo=timezone.utc),
+    )
+    assert not book.covers_at(
+        STANDARD_UNIT_RATE,
+        datetime(2024, 1, 1, 12, tzinfo=timezone.utc),
+    )
+
+
+def test_rate_book_reports_gap_inside_published_coverage():
+    book = RateBook()
+    book.add_rows(STANDARD_UNIT_RATE, [
+        rate_row(
+            20,
+            valid_from='2024-01-01T00:00:00Z',
+            valid_to='2024-01-02T00:00:00Z',
+        ),
+        rate_row(30, valid_from='2024-01-03T00:00:00Z'),
+    ])
+    timestamp = datetime(2024, 1, 2, 12, tzinfo=timezone.utc)
+
+    assert not book.has_rate_at(STANDARD_UNIT_RATE, timestamp)
+    assert book.covers_at(STANDARD_UNIT_RATE, timestamp)
+
+
 def test_rate_book_does_not_fallback_to_wrong_payment_method():
     book = RateBook()
     row = rate_row(20)

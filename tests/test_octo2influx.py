@@ -120,6 +120,30 @@ def test_std_unit_rate_to_points_short_point_validity(
     assert all('value_inc_vat=39.799515' in line for line in line_protocol)
 
 
+def test_std_unit_rate_to_points_supports_unbounded_rate(
+        load_example_config, flux_import_tariff):
+    row = {
+        'value_exc_vat': 0.0,
+        'value_inc_vat': 0.0,
+        'valid_from': None,
+        'valid_to': None,
+        'payment_method': None,
+    }
+    london = pytz.timezone('Europe/London')
+    from_dt = london.localize(datetime(2023, 12, 17, 0, 0))
+    to_dt = london.localize(datetime(2023, 12, 17, 23, 59, 59))
+
+    points = octo2influx.std_unit_rate_to_points(
+        'octopus-tariffs', row, 'standing-charges', 'p/day',
+        flux_import_tariff, from_dt, to_dt)
+    line_protocol = [point.to_line_protocol() for point in points]
+
+    assert len(points) == 2
+    assert line_protocol[0].endswith('1702771200000000000')
+    assert line_protocol[-1].endswith('1702857599000000000')
+    assert all('source_valid_from' not in line for line in line_protocol)
+
+
 def test_consumption_to_point(electricity_import_usage):
     row = {'consumption': 1.214, 'interval_start': '2023-12-19T04:30:00Z', 'interval_end': '2023-12-19T05:00:00Z'}
     point = octo2influx.consumption_to_point(

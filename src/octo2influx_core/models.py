@@ -110,22 +110,22 @@ class Rate:
     price_type: str
     value_exc_vat: float
     value_inc_vat: float
-    valid_from: datetime
+    valid_from: datetime | None
     valid_to: datetime | None
     payment_method: str | None = None
 
     @classmethod
     def from_api(cls, price_type: str, row: dict[str, Any]) -> 'Rate':
         valid_from_raw = row.get('valid_from')
-        if not valid_from_raw:
-            raise ValueError(
-                f'Octopus {price_type} rate is missing valid_from.')
         valid_to_raw = row.get('valid_to')
         return cls(
             price_type=price_type,
             value_exc_vat=float(row['value_exc_vat']),
             value_inc_vat=float(row['value_inc_vat']),
-            valid_from=dateutil.parser.isoparse(valid_from_raw),
+            valid_from=(
+                dateutil.parser.isoparse(valid_from_raw)
+                if valid_from_raw else None
+            ),
             valid_to=(
                 dateutil.parser.isoparse(valid_to_raw)
                 if valid_to_raw else None
@@ -135,7 +135,7 @@ class Rate:
 
     def contains(self, timestamp: datetime) -> bool:
         return (
-            timestamp >= self.valid_from
+            (self.valid_from is None or timestamp >= self.valid_from)
             and (self.valid_to is None or timestamp < self.valid_to)
         )
 
@@ -148,7 +148,37 @@ class RateBook:
                  rows: list[dict[str, Any]]) -> None:
         parsed = [Rate.from_api(price_type, row) for row in rows]
         self.rates.setdefault(price_type, []).extend(parsed)
-        self.rates[price_type].sort(key=lambda rate: rate.valid_from)
+        self.rates[price_type].sort(
+            key=lambda rate: (
+                rate.valid_from
+                or datetime.min.replace(tzinfo=timezone.utc)
+            ),
+        )
+
+    def has_rate_at(self, price_type: str, timestamp: datetime) -> bool:
+        return any(
+            rate.contains(timestamp)
+            for rate in self.rates.get(price_type, ())
+        )
+
+    def covers_at(self, price_type: str, timestamp: datetime) -> bool:
+        rates = self.rates.get(price_type, ())
+        if not rates:
+            return False
+        starts = [
+            rate.valid_from for rate in rates
+            if rate.valid_from is not None
+        ]
+        ends = [
+            rate.valid_to for rate in rates
+            if rate.valid_to is not None
+        ]
+        start = None if len(starts) < len(rates) else min(starts)
+        end = None if len(ends) < len(rates) else max(ends)
+        return (
+            (start is None or timestamp >= start)
+            and (end is None or timestamp < end)
+        )
 
     def rate_at(self, price_type: str, timestamp: datetime,
                 payment_method: str | None = None) -> Rate | None:
