@@ -43,6 +43,8 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    env:
+      GRAFANA_ADMIN_PASSWORD: ci-grafana-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -96,8 +98,64 @@ jobs:
           echo "TEST_INFLUX_URL=http://localhost:8181" >> "$GITHUB_ENV"
           echo "TEST_INFLUX_TOKEN=$token" >> "$GITHUB_ENV"
           echo "TEST_INFLUX_DATABASE=octo2influx_test" >> "$GITHUB_ENV"
+      - name: Validate Grafana provisioning
+        shell: bash
+        run: |
+          docker run --detach \
+            --name octo2influx-integration-grafana \
+            --publish 3000:3000 \
+            --add-host host.docker.internal:host-gateway \
+            --env GF_SECURITY_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD" \
+            --env GF_AUTH_ANONYMOUS_ENABLED=false \
+            --env INFLUXDB_URL=http://host.docker.internal:8181 \
+            --env INFLUXDB_DATABASE="$TEST_INFLUX_DATABASE" \
+            --env INFLUXDB_TOKEN="$TEST_INFLUX_TOKEN" \
+            --volume "$GITHUB_WORKSPACE/grafana/provisioning:/etc/grafana/provisioning:ro" \
+            --volume "$GITHUB_WORKSPACE/grafana/dashboard.json:/var/lib/grafana/dashboards/octo2influx.json:ro" \
+            --volume "$GITHUB_WORKSPACE/grafana/historical-dashboard.json:/var/lib/grafana/dashboards/octo2influx-history.json:ro" \
+            grafana/grafana:13.0.7
+
+          ready=false
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:3000/api/health \
+                >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != "true" ]]; then
+            docker logs octo2influx-integration-grafana
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            --user "admin:${GRAFANA_ADMIN_PASSWORD}" \
+            "http://localhost:3000/api/search?type=dash-db" |
+            python -c '
+          import json, sys
+          titles = {item["title"] for item in json.load(sys.stdin)}
+          expected = {
+              "octo2influx — Overview",
+              "octo2influx — Historical Analysis",
+          }
+          missing = expected - titles
+          assert not missing, f"Missing provisioned dashboards: {missing}"
+          '
+
+          curl --fail --silent --show-error \
+            --user "admin:${GRAFANA_ADMIN_PASSWORD}" \
+            http://localhost:3000/api/datasources/uid/octo2influx-influxdb/health |
+            python -c '
+          import json, sys
+          result = json.load(sys.stdin)
+          assert result.get("status") == "OK", result
+          '
       - name: Run InfluxDB integration tests
         run: python -m pytest -q -m integration
       - name: Show InfluxDB logs
         if: failure()
         run: docker logs octo2influx-integration-influx
+      - name: Show Grafana logs
+        if: failure()
+        run: docker logs octo2influx-integration-grafana

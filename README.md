@@ -3,8 +3,6 @@
 Import Octopus Energy electricity, export, gas, and tariff data into InfluxDB 3
 and analyse it in Grafana.
 
-![Grafana dashboard overview](images/grafana-dashboard-overview.png)
-
 octo2influx provides:
 
 - incremental, replay-safe ingestion with an explicit checkpoint per stream;
@@ -13,14 +11,12 @@ octo2influx provides:
 - raw usage and tariff measurements that remain backward compatible;
 - materialised usage costs and one standing charge per supply per local day;
 - isolation between streams, with failed streams retried without blocking others;
-- a provisioned Grafana SQL datasource, dashboard, and ingestion-health panel.
-
-![Grafana Agile tariff example](images/grafana-example-agile.png)
+- a provisioned Grafana SQL datasource, two dashboards, and ingestion health.
 
 ## Docker Compose quick start
 
 The example stack pins InfluxDB 3 Core and Grafana, binds their ports to
-`127.0.0.1`, disables anonymous Grafana access, and provisions the dashboard.
+`127.0.0.1`, disables anonymous Grafana access, and provisions both dashboards.
 
 1. Create local files:
 
@@ -223,15 +219,33 @@ Secrets are rejected on the command line. Run
 Docker Compose provisions:
 
 - an InfluxDB 3 SQL datasource using `INFLUXDB_TOKEN` from `.env`;
-- [`grafana/dashboard.json`](grafana/dashboard.json);
+- [`grafana/dashboard.json`](grafana/dashboard.json), an operational overview
+  inspired by modern home-energy dashboards, with six colored KPI tiles, daily
+  grid energy, cost/revenue, rate trends, hour-of-day usage, cumulative energy,
+  gas, and ingestion health;
+- [`grafana/historical-dashboard.json`](grafana/historical-dashboard.json), a
+  long-range analysis view with tariff timelines, per-meter history, tariff
+  comparison, cumulative totals, and five-year navigation;
 - variables for datasource, measurements, gas unit, account timezone, and
   comparison tariffs;
 - summed multi-meter usage, materialised tariff costs, DST-safe daily totals,
   multi-rate price series, and latest synchronization health.
 
-For an external Grafana installation, import the dashboard and select an
+Solar generation, battery state/power, and account balance are not shown because
+the importer does not collect those sources. The layout deliberately avoids
+inventing values to fill attractive rectangles.
+
+For an external Grafana installation, import either dashboard and select an
 InfluxDB datasource configured with SQL, the target database, token, and
 `insecureGrpc: true` for a plain HTTP endpoint.
+
+The JSON files are generated deterministically from
+[`grafana/generate_dashboards.py`](grafana/generate_dashboards.py):
+
+```shell
+python3 grafana/generate_dashboards.py
+python3 grafana/generate_dashboards.py --check
+```
 
 ## Reverse proxy
 
@@ -249,8 +263,9 @@ python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q -m "not integration"
 ```
 
-CI tests Python 3.10 and 3.13, validates Compose, builds the image, boots a real
-InfluxDB 3 Core instance, runs the sync twice, and proves idempotency and cost
+CI tests Python 3.10 and 3.13, validates Compose, builds the image, boots real
+InfluxDB and Grafana instances, verifies both provisioned dashboards and their
+datasource, executes every panel SQL query, and proves idempotent sync and cost
 calculation. Dependabot checks Python, Docker, and Actions dependencies monthly.
 
 ## Acknowledgements

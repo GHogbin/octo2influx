@@ -186,7 +186,7 @@
               }
             ]
           },
-          "unit": "currencyGBPkWh"
+          "unit": "currencyGBP"
         },
         "overrides": []
       },
