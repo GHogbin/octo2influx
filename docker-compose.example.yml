@@ -61,6 +61,7 @@ services:
       - grafanadata:/var/lib/grafana
       - "./grafana/provisioning:/etc/grafana/provisioning:ro"
       - "./grafana/dashboard.json:/var/lib/grafana/dashboards/octo2influx.json:ro"
+      - "./grafana/historical-dashboard.json:/var/lib/grafana/dashboards/octo2influx-history.json:ro"
     logging:
         driver: "json-file"
         options:

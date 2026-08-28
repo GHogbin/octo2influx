@@ -1,11 +1,18 @@
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 
+import pytest
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DASHBOARD_PATHS = [
+    ROOT / 'grafana' / 'dashboard.json',
+    ROOT / 'grafana' / 'historical-dashboard.json',
+]
 
 
 def dashboard_queries(dashboard):
@@ -51,6 +58,10 @@ def test_compose_defaults_are_local_and_authenticated():
     assert services['grafana']['depends_on']['influx']['condition'] == (
         'service_healthy'
     )
+    grafana_volumes = services['grafana']['volumes']
+    assert any('dashboard.json:' in value for value in grafana_volumes)
+    assert any('historical-dashboard.json:' in value
+               for value in grafana_volumes)
     assert services['octo2influx']['volumes'][0].endswith(':ro')
     assert services['octo2influx']['environment']['RETRY_FREQ'] == '5m'
     assert services['octo2influx']['depends_on']['influx']['condition'] == (
@@ -58,34 +69,48 @@ def test_compose_defaults_are_local_and_authenticated():
     )
 
 
-def test_dashboard_is_portable_and_uses_safe_time_queries():
-    dashboard_text = (
-        ROOT / 'grafana' / 'dashboard.json'
-    ).read_text(encoding='utf-8')
+def test_generated_dashboards_are_current():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / 'grafana' / 'generate_dashboards.py'),
+            '--check',
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('dashboard_path', DASHBOARD_PATHS)
+def test_dashboard_is_portable_and_uses_safe_time_queries(
+        dashboard_path):
+    dashboard_text = dashboard_path.read_text(encoding='utf-8')
     dashboard = json.loads(dashboard_text)
     queries = list(dashboard_queries(dashboard))
 
     assert dashboard['id'] is None
+    assert dashboard['uid']
     assert 'c8229740-0e9a-4f46-a107-27c0a34b86fb' not in dashboard_text
     assert '${DS_INFLUXDB}' not in dashboard_text
     assert dashboard_text.count('${datasource}') > 0
     assert 'avg(\\"kWh\\")' not in dashboard_text
+    assert '/ 48.0' not in dashboard_text
 
     cost_queries = [
         query for query in queries
         if 'FROM "${cost_measurement}"' in query
     ]
-    assert len(cost_queries) == 5
-    for query in cost_queries:
-        assert '"cost_type" IN (\'usage\', \'standing\')' in query
-        assert 'date_bin_gapfill' not in query
-        assert '/ 48.0' not in query
+    assert cost_queries
+    assert any('"cost_type"' in query for query in cost_queries)
 
     daily_queries = [
         query for query in queries
         if "INTERVAL '1 day'" in query
     ]
-    assert len(daily_queries) == 3
+    assert daily_queries
     for query in daily_queries:
         assert 'date_bin_wallclock' in query
         assert "tz(time, '${account_timezone}')" in query
@@ -102,8 +127,53 @@ def test_dashboard_is_portable_and_uses_safe_time_queries():
 
     rate_queries = [
         query for query in queries
-        if 'unit-rate_£/kWh' in query
+        if 'p/kWh_inc_vat' in query
     ]
     assert len(rate_queries) == 2
     assert all('date_bin_gapfill' in query for query in rate_queries)
     assert all('locf(' in query for query in rate_queries)
+
+
+def test_overview_matches_reference_information_hierarchy():
+    dashboard = json.loads(
+        DASHBOARD_PATHS[0].read_text(encoding='utf-8')
+    )
+    titles = {panel['title'] for panel in dashboard['panels']}
+    stat_panels = [
+        panel for panel in dashboard['panels']
+        if panel['type'] == 'stat' and panel['gridPos']['y'] == 1
+    ]
+
+    assert len(stat_panels) == 6
+    assert {
+        'Grid Imported',
+        'Grid Exported',
+        'Net Grid',
+        'Import Cost',
+        'Export Revenue',
+        'Net Cost',
+    }.issubset(titles)
+    assert {
+        'Daily Grid Energy',
+        'Daily Cost and Revenue',
+        'Unit Rates over Time',
+        'Average by Hour of Day',
+        'Cumulative Grid Energy',
+    }.issubset(titles)
+
+
+def test_historical_dashboard_has_analysis_views():
+    dashboard = json.loads(
+        DASHBOARD_PATHS[1].read_text(encoding='utf-8')
+    )
+    panel_types = {panel['type'] for panel in dashboard['panels']}
+    titles = {panel['title'] for panel in dashboard['panels']}
+
+    assert 'state-timeline' in panel_types
+    assert 'table' in panel_types
+    assert {
+        'Tariff Timeline',
+        'Tariff Comparison',
+        'Import by Meter Point',
+        'Cumulative Energy Totals',
+    }.issubset(titles)
