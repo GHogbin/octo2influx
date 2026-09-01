@@ -166,13 +166,10 @@ NET_COST_TOTAL = sql('''
       AND $__timeFilter(time)
 ''')
 
-DAILY_IMPORT = sql('''
+ELECTRICITY_IMPORT_INTERVAL = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
-      SUM("kWh") AS "Grid imported"
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
+      SUM("kWh") AS "Electricity import"
     FROM "${usage_measurement}"
     WHERE "energy_type" = 'electricity'
       AND "direction" = 'import'
@@ -181,13 +178,10 @@ DAILY_IMPORT = sql('''
     ORDER BY 1
 ''')
 
-DAILY_EXPORT = sql('''
+ELECTRICITY_EXPORT_INTERVAL = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
-      -SUM("kWh") AS "Grid exported"
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
+      -SUM("kWh") AS "Electricity export"
     FROM "${usage_measurement}"
     WHERE "energy_type" = 'electricity'
       AND "direction" = 'export'
@@ -196,31 +190,22 @@ DAILY_EXPORT = sql('''
     ORDER BY 1
 ''')
 
-DAILY_FINANCIALS = sql('''
+ELECTRICITY_FINANCIALS_INTERVAL = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
       SUM(CASE
         WHEN "direction" = 'import' THEN "value_gbp"
         ELSE 0.0
-      END) AS "Import cost",
+      END) AS "Import usage cost",
       SUM(CASE
-        WHEN "direction" = 'export' AND "cost_type" = 'usage'
-          THEN "value_gbp"
-        WHEN "direction" = 'export' AND "cost_type" = 'standing'
-          THEN -"value_gbp"
+        WHEN "direction" = 'export' THEN "value_gbp"
         ELSE 0.0
-      END) AS "Export revenue",
+      END) AS "Export usage revenue",
       SUM(CASE
         WHEN "direction" = 'import' THEN "value_gbp"
-        WHEN "direction" = 'export' AND "cost_type" = 'usage'
-          THEN -"value_gbp"
-        WHEN "direction" = 'export' AND "cost_type" = 'standing'
-          THEN "value_gbp"
+        WHEN "direction" = 'export' THEN -"value_gbp"
         ELSE 0.0
-      END) AS "Net cost"
+      END) AS "Net usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
       AND (
@@ -230,6 +215,7 @@ DAILY_FINANCIALS = sql('''
         ("direction" = 'export'
           AND "tariff_code" = '${electricity_export_tariff}')
       )
+      AND "cost_type" = 'usage'
       AND $__timeFilter(time)
     GROUP BY 1
     ORDER BY 1
@@ -237,7 +223,7 @@ DAILY_FINANCIALS = sql('''
 
 ELECTRICITY_INTERVAL_COST = sql('''
     SELECT
-      date_bin(INTERVAL '${cost_interval}', time) AS time,
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
       SUM("value_gbp") AS "Electricity usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
@@ -252,7 +238,7 @@ ELECTRICITY_INTERVAL_COST = sql('''
 IMPORT_RATES = sql('''
     WITH rates AS (
       SELECT
-        date_bin_gapfill(INTERVAL '30 minutes', time) AS time,
+        date_bin_gapfill(INTERVAL '${chart_interval}', time) AS time,
         "price_type",
         locf(avg("p/kWh_inc_vat")) / 100.0 AS "Import £/kWh"
       FROM "${tariffs_measurement}"
@@ -271,14 +257,14 @@ IMPORT_RATES = sql('''
       GROUP BY 1, "price_type"
     )
     SELECT * FROM rates
-    WHERE time >= date_bin(INTERVAL '30 minutes', $__timeFrom)
+    WHERE time >= date_bin(INTERVAL '${chart_interval}', $__timeFrom)
     ORDER BY time
 ''')
 
 EXPORT_RATES = sql('''
     WITH rates AS (
       SELECT
-        date_bin_gapfill(INTERVAL '30 minutes', time) AS time,
+        date_bin_gapfill(INTERVAL '${chart_interval}', time) AS time,
         "price_type",
         locf(avg("p/kWh_inc_vat")) / 100.0 AS "Export £/kWh"
       FROM "${tariffs_measurement}"
@@ -297,13 +283,13 @@ EXPORT_RATES = sql('''
       GROUP BY 1, "price_type"
     )
     SELECT * FROM rates
-    WHERE time >= date_bin(INTERVAL '30 minutes', $__timeFrom)
+    WHERE time >= date_bin(INTERVAL '${chart_interval}', $__timeFrom)
     ORDER BY time
 ''')
 
 ELECTRICITY_COST_RATES = sql('''
     SELECT
-      date_bin_gapfill(INTERVAL '30 minutes', time) AS time,
+      date_bin_gapfill(INTERVAL '${chart_interval}', time) AS time,
       "price_type",
       locf(avg("unit_rate_pence")) / 100.0 AS "Electricity £/kWh"
     FROM "${cost_measurement}"
@@ -319,7 +305,7 @@ ELECTRICITY_COST_RATES = sql('''
 
 GAS_COST_RATES = sql('''
     SELECT
-      date_bin_gapfill(INTERVAL '30 minutes', time) AS time,
+      date_bin_gapfill(INTERVAL '${chart_interval}', time) AS time,
       locf(avg("unit_rate_pence")) / 100.0 AS "Gas £/kWh"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
@@ -380,13 +366,10 @@ IMPORT_HOURLY_PROFILE = sql('''
     ORDER BY hour
 ''')
 
-CUMULATIVE_ENERGY = sql('''
-    WITH daily AS (
+CUMULATIVE_ENERGY_INTERVAL = sql('''
+    WITH intervals AS (
       SELECT
-        date_bin_wallclock(
-          INTERVAL '1 day',
-          tz(time, '${account_timezone}')
-        ) AS day,
+        date_bin(INTERVAL '${chart_interval}', time) AS interval_time,
         SUM(CASE WHEN "direction" = 'import' THEN "kWh" ELSE 0.0 END)
           AS imported,
         SUM(CASE WHEN "direction" = 'export' THEN "kWh" ELSE 0.0 END)
@@ -398,24 +381,23 @@ CUMULATIVE_ENERGY = sql('''
       GROUP BY 1
     )
     SELECT
-      day AS time,
+      interval_time AS time,
       SUM(imported) OVER (
-        ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ORDER BY interval_time
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
       ) AS "Cumulative import",
       SUM(exported) OVER (
-        ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ORDER BY interval_time
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
       ) AS "Cumulative export"
-    FROM daily
-    ORDER BY day
+    FROM intervals
+    ORDER BY interval_time
 ''')
 
-CUMULATIVE_IMPORT = sql('''
-    WITH daily AS (
+CUMULATIVE_IMPORT_INTERVAL = sql('''
+    WITH intervals AS (
       SELECT
-        date_bin_wallclock(
-          INTERVAL '1 day',
-          tz(time, '${account_timezone}')
-        ) AS day,
+        date_bin(INTERVAL '${chart_interval}', time) AS interval_time,
         SUM("kWh") AS imported
       FROM "${usage_measurement}"
       WHERE "energy_type" = 'electricity'
@@ -424,20 +406,18 @@ CUMULATIVE_IMPORT = sql('''
       GROUP BY 1
     )
     SELECT
-      day AS time,
+      interval_time AS time,
       SUM(imported) OVER (
-        ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ORDER BY interval_time
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
       ) AS "Cumulative import"
-    FROM daily
-    ORDER BY day
+    FROM intervals
+    ORDER BY interval_time
 ''')
 
-GAS_DAILY = sql('''
+GAS_USAGE_INTERVAL = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
       SUM("${gas_unit}") AS "Gas ${gas_unit}"
     FROM "${usage_measurement}"
     WHERE "energy_type" = 'gas'
@@ -447,14 +427,25 @@ GAS_DAILY = sql('''
     ORDER BY 1
 ''')
 
-GAS_DAILY_KWH_RATE = sql('''
+GAS_KWH_RATE_INTERVAL = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
       SUM("billing_consumption_kwh") AS "Gas kWh",
       AVG("unit_rate_pence") / 100.0 AS "Gas £/kWh"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'gas'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${gas_tariff}'
+      AND "cost_type" = 'usage'
+      AND $__timeFilter(time)
+    GROUP BY 1
+    ORDER BY 1
+''')
+
+GAS_COST_INTERVAL = sql('''
+    SELECT
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
+      SUM("value_gbp") AS "Gas usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
       AND "direction" = 'import'
@@ -498,10 +489,7 @@ LATEST_SYNC = sql('''
 
 METER_HISTORY = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
+      date_bin(INTERVAL '${chart_interval}', time) AS time,
       "meter_point",
       SUM("kWh") AS "Imported kWh"
     FROM "${usage_measurement}"
@@ -863,7 +851,7 @@ def state_timeline(panel_id: int, title: str, targets: list[dict],
 def variables(include_history: bool = False,
               include_export: bool = True,
               include_gas_unit: bool = True,
-              include_cost_interval: bool = False) -> list[dict]:
+              include_chart_interval: bool = False) -> list[dict]:
     values = [{
         'current': {
             'selected': True,
@@ -925,7 +913,7 @@ def variables(include_history: bool = False,
             'skipUrlSync': False,
             'type': 'custom',
         })
-    if include_cost_interval:
+    if include_chart_interval:
         values.append({
             'current': {
                 'selected': True,
@@ -933,8 +921,8 @@ def variables(include_history: bool = False,
                 'value': '30 minutes',
             },
             'hide': 0,
-            'label': 'Electricity cost interval',
-            'name': 'cost_interval',
+            'label': 'Chart interval',
+            'name': 'chart_interval',
             'options': [
                 {
                     'selected': True,
@@ -1020,7 +1008,7 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                    include_history: bool = False,
                    include_export: bool = True,
                    include_gas_unit: bool = True,
-                   include_cost_interval: bool = False) -> dict:
+                   include_chart_interval: bool = False) -> dict:
     return {
         'annotations': {
             'list': [{
@@ -1057,7 +1045,7 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                 include_history,
                 include_export,
                 include_gas_unit,
-                include_cost_interval,
+                include_chart_interval,
             ),
         },
         'time': {'from': default_from, 'to': 'now-18h'},
@@ -1124,16 +1112,19 @@ def build_overview_dashboard() -> dict:
         row(102, 'Metering', 15),
         timeseries(
             9,
-            'Daily Electricity Import',
-            [target(DAILY_IMPORT, 'Import')],
+            'Electricity Import by Interval',
+            [target(ELECTRICITY_IMPORT_INTERVAL, 'Import')],
             0, 16, 12, 9, 'kwatth',
             draw_style='bars', fill_opacity=75,
-            description='Daily smart-meter electricity import.',
+            description=(
+                'Smart-meter electricity import grouped into the selected '
+                '30-minute or one-hour interval.'
+            ),
         ),
         timeseries(
             10,
-            'Gas: Daily kWh and Tariff Rate',
-            [target(GAS_DAILY_KWH_RATE)],
+            'Gas kWh and Tariff Rate by Interval',
+            [target(GAS_KWH_RATE_INTERVAL)],
             12, 16, 12, 9, 'kwatth',
             draw_style='bars', fill_opacity=65,
             description=(
@@ -1176,7 +1167,7 @@ def build_overview_dashboard() -> dict:
         timeseries(
             13,
             'Cumulative Electricity Import',
-            [target(CUMULATIVE_IMPORT)],
+            [target(CUMULATIVE_IMPORT_INTERVAL)],
             12, 33, 12, 8, 'kwatth',
             draw_style='line', fill_opacity=12,
         ),
@@ -1192,7 +1183,7 @@ def build_overview_dashboard() -> dict:
         'now-3d',
         include_export=False,
         include_gas_unit=False,
-        include_cost_interval=True,
+        include_chart_interval=True,
     )
 
 
@@ -1201,8 +1192,8 @@ def build_historical_dashboard() -> dict:
         row(200, 'Historical Financials', 0),
         timeseries(
             1,
-            'Daily Electricity Cost and Revenue',
-            [target(DAILY_FINANCIALS)],
+            'Electricity Cost and Revenue by Interval',
+            [target(ELECTRICITY_FINANCIALS_INTERVAL)],
             0, 1, 14, 9, 'currencyGBP',
             draw_style='bars', fill_opacity=60,
         ),
@@ -1219,10 +1210,10 @@ def build_historical_dashboard() -> dict:
         row(201, 'Metering History', 10),
         timeseries(
             3,
-            'Daily Grid Import and Export',
+            'Grid Import and Export by Interval',
             [
-                target(DAILY_IMPORT, 'Import'),
-                target(DAILY_EXPORT, 'Export'),
+                target(ELECTRICITY_IMPORT_INTERVAL, 'Import'),
+                target(ELECTRICITY_EXPORT_INTERVAL, 'Export'),
             ],
             0, 11, 24, 9, 'kwatth',
             draw_style='bars', stacking='normal', fill_opacity=75,
@@ -1266,22 +1257,24 @@ def build_historical_dashboard() -> dict:
         timeseries(
             8,
             'Cumulative Energy Totals',
-            [target(CUMULATIVE_ENERGY)],
+            [target(CUMULATIVE_ENERGY_INTERVAL)],
             12, 36, 12, 9, 'kwatth',
             draw_style='line', fill_opacity=10,
         ),
         row(203, 'Gas History', 45),
         timeseries(
             9,
-            'Daily Gas Usage (${gas_unit})',
-            [target(GAS_DAILY)],
-            0, 46, 16, 8, 'short',
+            'Gas Usage by Interval (${gas_unit})',
+            [target(GAS_USAGE_INTERVAL)],
+            0, 46, 12, 8, 'short',
             draw_style='bars', fill_opacity=70,
         ),
-        stat(
-            10, 'Gas Cost', GAS_COST_TOTAL, 16, 46, 8,
-            COLORS['orange'], 'currencyGBP', height=8,
-            time_from='$HistoryDuration'),
+        timeseries(
+            10, 'Gas Usage Cost by Interval',
+            [target(GAS_COST_INTERVAL)],
+            12, 46, 12, 8, 'currencyGBP',
+            draw_style='bars', fill_opacity=60,
+        ),
         row(204, 'Ingestion Health', 54),
         stat(
             11, 'Latest Synchronization', LATEST_SYNC, 0, 55, 24,
@@ -1296,6 +1289,7 @@ def build_historical_dashboard() -> dict:
         panels,
         'now-7d',
         include_history=True,
+        include_chart_interval=True,
     )
 
 

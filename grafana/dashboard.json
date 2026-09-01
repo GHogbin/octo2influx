@@ -532,7 +532,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin(INTERVAL '${cost_interval}', time) AS time,\n  SUM(\"value_gbp\") AS \"Electricity usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(\"value_gbp\") AS \"Electricity usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -628,7 +628,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_gapfill(INTERVAL '30 minutes', time) AS time,\n  \"price_type\",\n  locf(avg(\"unit_rate_pence\")) / 100.0 AS \"Electricity £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND time >= $__timeFrom\n  AND time <= $__timeTo\nGROUP BY 1, \"price_type\"\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin_gapfill(INTERVAL '${chart_interval}', time) AS time,\n  \"price_type\",\n  locf(avg(\"unit_rate_pence\")) / 100.0 AS \"Electricity £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND time >= $__timeFrom\n  AND time <= $__timeTo\nGROUP BY 1, \"price_type\"\nORDER BY 1",
           "refId": "Electricity"
         },
         {
@@ -639,7 +639,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_gapfill(INTERVAL '30 minutes', time) AS time,\n  locf(avg(\"unit_rate_pence\")) / 100.0 AS \"Gas £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND time >= $__timeFrom\n  AND time <= $__timeTo\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin_gapfill(INTERVAL '${chart_interval}', time) AS time,\n  locf(avg(\"unit_rate_pence\")) / 100.0 AS \"Gas £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND time >= $__timeFrom\n  AND time <= $__timeTo\nGROUP BY 1\nORDER BY 1",
           "refId": "Gas"
         }
       ],
@@ -748,13 +748,13 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"kWh\") AS \"Grid imported\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(\"kWh\") AS \"Electricity import\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "Import"
         }
       ],
-      "title": "Daily Electricity Import",
+      "title": "Electricity Import by Interval",
       "type": "timeseries",
-      "description": "Daily smart-meter electricity import."
+      "description": "Smart-meter electricity import grouped into the selected 30-minute or one-hour interval."
     },
     {
       "datasource": {
@@ -873,11 +873,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"billing_consumption_kwh\") AS \"Gas kWh\",\n  AVG(\"unit_rate_pence\") / 100.0 AS \"Gas £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(\"billing_consumption_kwh\") AS \"Gas kWh\",\n  AVG(\"unit_rate_pence\") / 100.0 AS \"Gas £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Gas: Daily kWh and Tariff Rate",
+      "title": "Gas kWh and Tariff Rate by Interval",
       "type": "timeseries",
       "description": "Gas kWh is estimated from m³ using the configured 11.1868 factor. The line is the Direct Debit tariff rate."
     },
@@ -1126,7 +1126,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH daily AS (\n  SELECT\n    date_bin_wallclock(\n      INTERVAL '1 day',\n      tz(time, '${account_timezone}')\n    ) AS day,\n    SUM(\"kWh\") AS imported\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND $__timeFilter(time)\n  GROUP BY 1\n)\nSELECT\n  day AS time,\n  SUM(imported) OVER (\n    ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS \"Cumulative import\"\nFROM daily\nORDER BY day",
+          "rawSql": "WITH intervals AS (\n  SELECT\n    date_bin(INTERVAL '${chart_interval}', time) AS interval_time,\n    SUM(\"kWh\") AS imported\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND $__timeFilter(time)\n  GROUP BY 1\n)\nSELECT\n  interval_time AS time,\n  SUM(imported) OVER (\n    ORDER BY interval_time\n    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS \"Cumulative import\"\nFROM intervals\nORDER BY interval_time",
           "refId": "A"
         }
       ],
@@ -1341,8 +1341,8 @@
           "value": "30 minutes"
         },
         "hide": 0,
-        "label": "Electricity cost interval",
-        "name": "cost_interval",
+        "label": "Chart interval",
+        "name": "chart_interval",
         "options": [
           {
             "selected": true,

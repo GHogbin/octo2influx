@@ -110,21 +110,14 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
     assert cost_queries
     assert any('"cost_type"' in query for query in cost_queries)
 
-    daily_queries = [
-        query for query in queries
-        if "INTERVAL '1 day'" in query
-    ]
-    assert daily_queries
-    for query in daily_queries:
-        assert 'date_bin_wallclock' in query
-        assert "tz(time, '${account_timezone}')" in query
-
     variables = {
         item['name']: item for item in dashboard['templating']['list']
     }
     assert variables['datasource']['type'] == 'datasource'
     assert variables['cost_measurement']['query'] == 'octopus-costs'
     assert variables['status_measurement']['query'] == 'octopus-sync-status'
+    assert variables['chart_interval']['query'] == '30 minutes,1 hour'
+    assert variables['chart_interval']['current']['value'] == '30 minutes'
     assert dashboard['timepicker']['time_options'] == [
         '24h', '2d', '3d', '7d',
     ]
@@ -164,6 +157,10 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
     assert len(rate_queries) == 2
     assert all('date_bin_gapfill' in query for query in rate_queries)
     assert all('locf(' in query for query in rate_queries)
+    assert all(
+        "INTERVAL '${chart_interval}'" in query
+        for query in rate_queries
+    )
 
     hourly_queries = [
         query for query in queries
@@ -207,8 +204,8 @@ def test_overview_matches_reference_information_hierarchy():
     assert {
         'Electricity Usage Cost by Interval',
         'Electricity and Gas Unit Rates',
-        'Daily Electricity Import',
-        'Gas: Daily kWh and Tariff Rate',
+        'Electricity Import by Interval',
+        'Gas kWh and Tariff Rate by Interval',
         'Electricity and Gas Tariffs',
         'Electricity Import by Hour of Day',
         'Cumulative Electricity Import',
@@ -222,18 +219,28 @@ def test_overview_matches_reference_information_hierarchy():
         if panel['title'] == 'Electricity Usage Cost by Interval'
     )
     daily_cost_query = daily_cost_panel['targets'][0]['rawSql']
-    assert "date_bin(INTERVAL '${cost_interval}', time)" in (
+    assert "date_bin(INTERVAL '${chart_interval}', time)" in (
         daily_cost_query
     )
     assert 'AS "Electricity usage cost"' in daily_cost_query
     assert '"cost_type" = \'usage\'' in daily_cost_query
     assert 'standing' not in daily_cost_query
     assert daily_cost_panel['fieldConfig']['overrides'] == []
-    assert variables['cost_interval']['query'] == '30 minutes,1 hour'
-    assert variables['cost_interval']['current']['value'] == '30 minutes'
+    interval = variables['chart_interval']
+    assert interval['query'] == '30 minutes,1 hour'
+    assert interval['current']['value'] == '30 minutes'
+    import_panel = next(
+        panel for panel in dashboard['panels']
+        if panel['title'] == 'Electricity Import by Interval'
+    )
+    import_query = import_panel['targets'][0]['rawSql']
+    assert "date_bin(INTERVAL '${chart_interval}', time)" in (
+        import_query
+    )
+    assert 'SUM("kWh") AS "Electricity import"' in import_query
     gas_panel = next(
         panel for panel in dashboard['panels']
-        if panel['title'] == 'Gas: Daily kWh and Tariff Rate'
+        if panel['title'] == 'Gas kWh and Tariff Rate by Interval'
     )
     gas_rate_override = next(
         override for override in gas_panel['fieldConfig']['overrides']
@@ -292,6 +299,7 @@ def test_historical_dashboard_has_analysis_views():
 
     assert dashboard['time']['from'] == 'now-7d'
     assert variables['HistoryDuration']['query'] == '3d,7d'
+    assert variables['chart_interval']['query'] == '30 minutes,1 hour'
     assert 'state-timeline' in panel_types
     assert 'table' in panel_types
     assert {
@@ -299,4 +307,23 @@ def test_historical_dashboard_has_analysis_views():
         'Tariff Comparison',
         'Import by Meter Point',
         'Cumulative Energy Totals',
+        'Electricity Cost and Revenue by Interval',
+        'Grid Import and Export by Interval',
+        'Gas Usage by Interval (${gas_unit})',
+        'Gas Usage Cost by Interval',
     }.issubset(titles)
+
+    interval_titles = {
+        'Electricity Cost and Revenue by Interval',
+        'Unit Rates over Time',
+        'Grid Import and Export by Interval',
+        'Import by Meter Point',
+        'Cumulative Energy Totals',
+        'Gas Usage by Interval (${gas_unit})',
+        'Gas Usage Cost by Interval',
+    }
+    for panel in dashboard['panels']:
+        if panel['title'] not in interval_titles:
+            continue
+        for target in panel['targets']:
+            assert "INTERVAL '${chart_interval}'" in target['rawSql']
