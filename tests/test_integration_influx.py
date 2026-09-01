@@ -81,6 +81,7 @@ def render_dashboard_query(query):
         '${gas_tariff}': 'G-1R-DASH-GAS-C',
         '${account_timezone}': 'Europe/London',
         '${gas_unit}': 'm3',
+        '${cost_interval}': '30 minutes',
     }
     for variable, value in replacements.items():
         query = query.replace(variable, value)
