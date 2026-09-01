@@ -123,29 +123,62 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
         item['name']: item for item in dashboard['templating']['list']
     }
     assert variables['datasource']['type'] == 'datasource'
-    assert variables['gas_unit']['query'] == 'm3,kWh'
     assert variables['cost_measurement']['query'] == 'octopus-costs'
     assert variables['status_measurement']['query'] == 'octopus-sync-status'
     assert dashboard['timepicker']['time_options'] == [
         '24h', '2d', '3d', '7d',
     ]
-    for name in (
-            'electricity_import_tariff',
-            'electricity_export_tariff',
-            'gas_tariff'):
+    tariff_variables = [
+        'electricity_import_tariff',
+        'gas_tariff',
+    ]
+    if dashboard['uid'] == 'octo2influx-overview':
+        assert 'gas_unit' not in variables
+        assert 'electricity_export_tariff' not in variables
+    else:
+        assert variables['gas_unit']['query'] == 'm3,kWh'
+        tariff_variables.append('electricity_export_tariff')
+    for name in tariff_variables:
         assert "time >= now() - INTERVAL '24 hours'" in (
             variables[name]['query']
         )
+    assert variables['electricity_import_tariff']['current']['value'] == (
+        'E-1R-INTELLI-FIX-12M-26-06-13-H'
+    )
+    assert variables['gas_tariff']['current']['value'] == (
+        'G-1R-VAR-22-11-01-H'
+    )
     assert any(panel['title'] == 'Latest Synchronization'
                for panel in dashboard['panels'])
 
     rate_queries = [
         query for query in queries
-        if 'p/kWh_inc_vat' in query
+        if (
+            'date_bin_gapfill' in query
+            and (
+                'p/kWh_inc_vat' in query
+                or '"unit_rate_pence"' in query
+            )
+        )
     ]
     assert len(rate_queries) == 2
     assert all('date_bin_gapfill' in query for query in rate_queries)
     assert all('locf(' in query for query in rate_queries)
+
+    hourly_queries = [
+        query for query in queries
+        if 'AS "Hour"' in query and 'AVG(' in query
+    ]
+    assert hourly_queries
+    assert all(
+        "date_bin(INTERVAL '1 hour', time)" in query
+        for query in hourly_queries
+    )
+    assert all(
+        "interval_time >= $__timeFrom" in query
+        and "interval_time + INTERVAL '1 hour' <= $__timeTo" in query
+        for query in hourly_queries
+    )
 
 
 def test_overview_matches_reference_information_hierarchy():
@@ -161,20 +194,73 @@ def test_overview_matches_reference_information_hierarchy():
     assert dashboard['time']['from'] == 'now-3d'
     assert len(stat_panels) == 6
     assert {
-        'Grid Imported',
-        'Grid Exported',
-        'Net Grid',
-        'Import Cost',
-        'Export Revenue',
-        'Net Cost',
+        'Electricity Imported',
+        'Electricity Usage Cost',
+        'Electricity Standing Charge',
+        'Electricity Total Cost',
+        'Gas Used',
+        'Gas Total Cost',
     }.issubset(titles)
     assert {
-        'Daily Grid Energy',
-        'Daily Cost and Revenue',
-        'Unit Rates over Time',
-        'Average by Hour of Day',
-        'Cumulative Grid Energy',
+        'Daily Electricity Cost',
+        'Electricity and Gas Unit Rates',
+        'Daily Electricity Import',
+        'Gas: Daily kWh and Tariff Rate',
+        'Electricity and Gas Tariffs',
+        'Electricity Import by Hour of Day',
+        'Cumulative Electricity Import',
     }.issubset(titles)
+    assert not {
+        'Grid Exported',
+        'Export Revenue',
+    }.intersection(titles)
+    gas_panel = next(
+        panel for panel in dashboard['panels']
+        if panel['title'] == 'Gas: Daily kWh and Tariff Rate'
+    )
+    gas_rate_override = next(
+        override for override in gas_panel['fieldConfig']['overrides']
+        if override['matcher']['options'] == 'Gas £/kWh'
+    )
+    override_values = {
+        item['id']: item['value']
+        for item in gas_rate_override['properties']
+    }
+    assert override_values['unit'] == 'currencyGBP'
+    assert override_values['custom.axisPlacement'] == 'right'
+    assert override_values['custom.drawStyle'] == 'line'
+    tariff_panel = next(
+        panel for panel in dashboard['panels']
+        if panel['title'] == 'Electricity and Gas Tariffs'
+    )
+    for target in tariff_panel['targets']:
+        query = target['rawSql']
+        assert 'time < $__timeFrom' in query
+        assert "time >= $__timeFrom - INTERVAL '2 days'" in query
+        assert 'LIMIT 1' in query
+        assert 'UNION ALL' in query
+
+
+@pytest.mark.parametrize('dashboard_path', DASHBOARD_PATHS)
+def test_dashboard_panels_do_not_overlap(dashboard_path):
+    dashboard = json.loads(dashboard_path.read_text(encoding='utf-8'))
+    panels = [
+        panel for panel in dashboard['panels']
+        if panel['type'] != 'row'
+    ]
+    for index, first in enumerate(panels):
+        for second in panels[index + 1:]:
+            a = first['gridPos']
+            b = second['gridPos']
+            overlaps = not (
+                a['x'] + a['w'] <= b['x']
+                or b['x'] + b['w'] <= a['x']
+                or a['y'] + a['h'] <= b['y']
+                or b['y'] + b['h'] <= a['y']
+            )
+            assert not overlaps, (
+                f'{first["title"]!r} overlaps {second["title"]!r}'
+            )
 
 
 def test_historical_dashboard_has_analysis_views():

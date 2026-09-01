@@ -103,7 +103,7 @@
           "refId": "A"
         }
       ],
-      "title": "Grid Imported",
+      "title": "Electricity Imported",
       "type": "stat"
     },
     {
@@ -114,7 +114,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#3274D9",
+            "fixedColor": "#73BF69",
             "mode": "fixed"
           },
           "decimals": 2,
@@ -123,12 +123,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#3274D9",
+                "color": "#73BF69",
                 "value": null
               }
             ]
           },
-          "unit": "kwatth"
+          "unit": "currencyGBP"
         },
         "overrides": []
       },
@@ -164,11 +164,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(\"kWh\"), 0.0) AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND $__timeFilter(time)",
+          "rawSql": "SELECT COALESCE(SUM(\"value_gbp\"), 0.0) AS \"_value\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)",
           "refId": "A"
         }
       ],
-      "title": "Grid Exported",
+      "title": "Electricity Usage Cost",
       "type": "stat"
     },
     {
@@ -179,7 +179,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#FF9830",
+            "fixedColor": "#F2CC0C",
             "mode": "fixed"
           },
           "decimals": 2,
@@ -188,12 +188,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#FF9830",
+                "color": "#F2CC0C",
                 "value": null
               }
             ]
           },
-          "unit": "kwatth"
+          "unit": "currencyGBP"
         },
         "overrides": []
       },
@@ -229,11 +229,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"kWh\"\n    WHEN \"direction\" = 'export' THEN -\"kWh\"\n    ELSE 0.0\n  END),\n  0.0\n) AS \"_value\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" IN ('import', 'export')\n  AND $__timeFilter(time)",
+          "rawSql": "SELECT COALESCE(SUM(\"value_gbp\"), 0.0) AS \"_value\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'standing'\n  AND $__timeFilter(time)",
           "refId": "A"
         }
       ],
-      "title": "Net Grid",
+      "title": "Electricity Standing Charge",
       "type": "stat"
     },
     {
@@ -244,7 +244,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#73BF69",
+            "fixedColor": "#3274D9",
             "mode": "fixed"
           },
           "decimals": 2,
@@ -253,7 +253,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#73BF69",
+                "color": "#3274D9",
                 "value": null
               }
             ]
@@ -298,7 +298,7 @@
           "refId": "A"
         }
       ],
-      "title": "Import Cost",
+      "title": "Electricity Total Cost",
       "type": "stat"
     },
     {
@@ -309,7 +309,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#A352CC",
+            "fixedColor": "#FF9830",
             "mode": "fixed"
           },
           "decimals": 2,
@@ -318,12 +318,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#A352CC",
+                "color": "#FF9830",
                 "value": null
               }
             ]
           },
-          "unit": "currencyGBP"
+          "unit": "kwatth"
         },
         "overrides": []
       },
@@ -359,11 +359,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\n  SUM(CASE\n    WHEN \"cost_type\" = 'usage' THEN \"value_gbp\"\n    ELSE -\"value_gbp\"\n  END),\n  0.0\n) AS \"_value\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND \"tariff_code\" = '${electricity_export_tariff}'\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)",
+          "rawSql": "SELECT COALESCE(SUM(\"billing_consumption_kwh\"), 0.0) AS \"_value\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)",
           "refId": "A"
         }
       ],
-      "title": "Export Revenue",
+      "title": "Gas Used",
       "type": "stat"
     },
     {
@@ -374,7 +374,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#F2CC0C",
+            "fixedColor": "#A352CC",
             "mode": "fixed"
           },
           "decimals": 2,
@@ -383,7 +383,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "#F2CC0C",
+                "color": "#A352CC",
                 "value": null
               }
             ]
@@ -424,11 +424,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    WHEN \"direction\" = 'export' AND \"cost_type\" = 'usage'\n      THEN -\"value_gbp\"\n    WHEN \"direction\" = 'export' AND \"cost_type\" = 'standing'\n      THEN \"value_gbp\"\n    ELSE 0.0\n  END),\n  0.0\n) AS \"_value\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND (\n    (\"direction\" = 'import'\n      AND \"tariff_code\" = '${electricity_import_tariff}')\n    OR\n    (\"direction\" = 'export'\n      AND \"tariff_code\" = '${electricity_export_tariff}')\n  )\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)",
+          "rawSql": "SELECT COALESCE(SUM(\"value_gbp\"), 0.0) AS \"_value\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)",
           "refId": "A"
         }
       ],
-      "title": "Net Cost",
+      "title": "Gas Total Cost",
       "type": "stat"
     },
     {
@@ -441,7 +441,7 @@
       },
       "id": 101,
       "panels": [],
-      "title": "Daily Energy",
+      "title": "Costs and Unit Rates",
       "type": "row"
     },
     {
@@ -461,7 +461,7 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "bars",
-            "fillOpacity": 80,
+            "fillOpacity": 60,
             "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
@@ -478,7 +478,7 @@
             "spanNulls": true,
             "stacking": {
               "group": "A",
-              "mode": "normal"
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -494,13 +494,34 @@
               }
             ]
           },
-          "unit": "kwatth"
+          "unit": "currencyGBP"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total cost"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 5
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
-        "h": 10,
-        "w": 24,
+        "h": 9,
+        "w": 12,
         "x": 0,
         "y": 6
       },
@@ -532,37 +553,12 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"kWh\") AS \"Grid imported\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "refId": "Import"
-        },
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "format": "time_series",
-          "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  -SUM(\"kWh\") AS \"Grid exported\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "refId": "Export"
+          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(CASE\n    WHEN \"cost_type\" = 'usage' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Usage cost\",\n  SUM(CASE\n    WHEN \"cost_type\" = 'standing' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Standing charge\",\n  SUM(\"value_gbp\") AS \"Total cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
         }
       ],
-      "title": "Daily Grid Energy",
-      "type": "timeseries",
-      "description": "Import is positive and export is negative. Daily boundaries follow the account timezone."
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 16
-      },
-      "id": 102,
-      "panels": [],
-      "title": "Financials and Unit Rates",
-      "type": "row"
+      "title": "Daily Electricity Cost",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -580,8 +576,8 @@
             "axisColorMode": "text",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 55,
+            "drawStyle": "line",
+            "fillOpacity": 12,
             "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
@@ -620,9 +616,9 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 14,
-        "x": 0,
-        "y": 17
+        "w": 12,
+        "x": 12,
+        "y": 6
       },
       "id": 8,
       "options": {
@@ -652,12 +648,37 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Import cost\",\n  SUM(CASE\n    WHEN \"direction\" = 'export' AND \"cost_type\" = 'usage'\n      THEN \"value_gbp\"\n    WHEN \"direction\" = 'export' AND \"cost_type\" = 'standing'\n      THEN -\"value_gbp\"\n    ELSE 0.0\n  END) AS \"Export revenue\",\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    WHEN \"direction\" = 'export' AND \"cost_type\" = 'usage'\n      THEN -\"value_gbp\"\n    WHEN \"direction\" = 'export' AND \"cost_type\" = 'standing'\n      THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Net cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND (\n    (\"direction\" = 'import'\n      AND \"tariff_code\" = '${electricity_import_tariff}')\n    OR\n    (\"direction\" = 'export'\n      AND \"tariff_code\" = '${electricity_export_tariff}')\n  )\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "refId": "A"
+          "rawSql": "SELECT\n  date_bin_gapfill(INTERVAL '30 minutes', time) AS time,\n  \"price_type\",\n  locf(avg(\"unit_rate_pence\")) / 100.0 AS \"Electricity £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND time >= $__timeFrom\n  AND time <= $__timeTo\nGROUP BY 1, \"price_type\"\nORDER BY 1",
+          "refId": "Electricity"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  date_bin_gapfill(INTERVAL '30 minutes', time) AS time,\n  locf(avg(\"unit_rate_pence\")) / 100.0 AS \"Gas £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND time >= $__timeFrom\n  AND time <= $__timeTo\nGROUP BY 1\nORDER BY 1",
+          "refId": "Gas"
         }
       ],
-      "title": "Daily Cost and Revenue",
-      "type": "timeseries"
+      "title": "Electricity and Gas Unit Rates",
+      "type": "timeseries",
+      "description": "Rates used for the selected Intelligent Octopus Go and Flexible Octopus Direct Debit cost calculations."
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 102,
+      "panels": [],
+      "title": "Metering",
+      "type": "row"
     },
     {
       "datasource": {
@@ -675,8 +696,8 @@
             "axisColorMode": "text",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 15,
+            "drawStyle": "bars",
+            "fillOpacity": 75,
             "gradientMode": "opacity",
             "hideFrom": {
               "legend": false,
@@ -709,15 +730,15 @@
               }
             ]
           },
-          "unit": "currencyGBP"
+          "unit": "kwatth"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 9,
-        "w": 10,
-        "x": 14,
-        "y": 17
+        "w": 12,
+        "x": 0,
+        "y": 16
       },
       "id": 9,
       "options": {
@@ -747,9 +768,123 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH rates AS (\n  SELECT\n    date_bin_gapfill(INTERVAL '30 minutes', time) AS time,\n    \"price_type\",\n    locf(avg(\"p/kWh_inc_vat\")) / 100.0 AS \"Import £/kWh\"\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND \"price_type\" IN (\n      'standard-unit-rates',\n      'day-unit-rates',\n      'night-unit-rates',\n      'ev-device-off-peak-unit-rates',\n      'ev-device-peak-unit-rates'\n    )\n    AND \"tariff_code\" = '${electricity_import_tariff}'\n    AND time >= $__timeFrom - INTERVAL '2 days'\n    AND time <= $__timeTo\n  GROUP BY 1, \"price_type\"\n)\nSELECT * FROM rates\nWHERE time >= date_bin(INTERVAL '30 minutes', $__timeFrom)\nORDER BY time",
+          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"kWh\") AS \"Grid imported\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "Import"
+        }
+      ],
+      "title": "Daily Electricity Import",
+      "type": "timeseries",
+      "description": "Daily smart-meter electricity import."
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 65,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "kwatth"
         },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Gas £/kWh"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyGBP"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "13.0.7",
+      "targets": [
         {
           "datasource": {
             "type": "influxdb",
@@ -758,12 +893,13 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH rates AS (\n  SELECT\n    date_bin_gapfill(INTERVAL '30 minutes', time) AS time,\n    \"price_type\",\n    locf(avg(\"p/kWh_inc_vat\")) / 100.0 AS \"Export £/kWh\"\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'export'\n    AND \"price_type\" IN (\n      'standard-unit-rates',\n      'day-unit-rates',\n      'night-unit-rates',\n      'ev-device-off-peak-unit-rates',\n      'ev-device-peak-unit-rates'\n    )\n    AND \"tariff_code\" = '${electricity_export_tariff}'\n    AND time >= $__timeFrom - INTERVAL '2 days'\n    AND time <= $__timeTo\n  GROUP BY 1, \"price_type\"\n)\nSELECT * FROM rates\nWHERE time >= date_bin(INTERVAL '30 minutes', $__timeFrom)\nORDER BY time",
-          "refId": "Export"
+          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"billing_consumption_kwh\") AS \"Gas kWh\",\n  AVG(\"unit_rate_pence\") / 100.0 AS \"Gas £/kWh\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
         }
       ],
-      "title": "Unit Rates over Time",
-      "type": "timeseries"
+      "title": "Gas: Daily kWh and Tariff Rate",
+      "type": "timeseries",
+      "description": "Gas kWh is estimated from m³ using the configured 11.1868 factor. The line is the Direct Debit tariff rate."
     },
     {
       "collapsed": false,
@@ -771,9 +907,91 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 26
+        "y": 25
       },
       "id": 103,
+      "panels": [],
+      "title": "Selected Tariffs",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "spanNulls": true
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "id": 11,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH seed AS (\n  SELECT \"display_name\" AS \"Electricity tariff\"\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${electricity_import_tariff}'\n    AND \"price_type\" = 'standing-charges'\n    AND time >= $__timeFrom - INTERVAL '2 days'\n    AND time < $__timeFrom\n  ORDER BY time DESC\n  LIMIT 1\n),\ntimeline AS (\n  SELECT time, \"display_name\" AS \"Electricity tariff\"\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${electricity_import_tariff}'\n    AND \"price_type\" = 'standing-charges'\n    AND $__timeFilter(time)\n)\nSELECT $__timeFrom AS time, \"Electricity tariff\" FROM seed\nUNION ALL\nSELECT time, \"Electricity tariff\" FROM timeline\nORDER BY time",
+          "refId": "Electricity"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH seed AS (\n  SELECT \"display_name\" AS \"Gas tariff\"\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'gas'\n    AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${gas_tariff}'\n    AND \"price_type\" = 'standing-charges'\n    AND time >= $__timeFrom - INTERVAL '2 days'\n    AND time < $__timeFrom\n  ORDER BY time DESC\n  LIMIT 1\n),\ntimeline AS (\n  SELECT time, \"display_name\" AS \"Gas tariff\"\n  FROM \"${tariffs_measurement}\"\n  WHERE \"energy_type\" = 'gas'\n    AND \"direction\" = 'import'\n    AND \"tariff_code\" = '${gas_tariff}'\n    AND \"price_type\" = 'standing-charges'\n    AND $__timeFilter(time)\n)\nSELECT $__timeFrom AS time, \"Gas tariff\" FROM seed\nUNION ALL\nSELECT time, \"Gas tariff\" FROM timeline\nORDER BY time",
+          "refId": "Gas"
+        }
+      ],
+      "title": "Electricity and Gas Tariffs",
+      "type": "state-timeline"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 104,
       "panels": [],
       "title": "Usage Patterns",
       "type": "row"
@@ -795,11 +1013,11 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 12,
         "x": 0,
-        "y": 27
+        "y": 33
       },
-      "id": 10,
+      "id": 12,
       "options": {
         "barRadius": 0,
         "barWidth": 0.8,
@@ -833,11 +1051,11 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH intervals AS (\n  SELECT\n    date_bin(INTERVAL '30 minutes', time) AS interval_time,\n    date_part('hour', tz(time, '${account_timezone}')) AS hour,\n    \"direction\",\n    SUM(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" IN ('import', 'export')\n    AND $__timeFilter(time)\n  GROUP BY 1, 2, 3\n)\nSELECT\n  hour AS \"Hour\",\n  AVG(CASE WHEN \"direction\" = 'import' THEN kwh END)\n    AS \"Average import\",\n  AVG(CASE WHEN \"direction\" = 'export' THEN kwh END)\n    AS \"Average export\"\nFROM intervals\nGROUP BY hour\nORDER BY hour",
+          "rawSql": "WITH intervals AS (\n  SELECT\n    date_bin(INTERVAL '1 hour', time) AS interval_time,\n    date_part('hour', tz(time, '${account_timezone}')) AS hour,\n    SUM(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND $__timeFilter(time)\n  GROUP BY 1, 2\n)\nSELECT\n  hour AS \"Hour\",\n  AVG(kwh) AS \"Average import\"\nFROM intervals\nWHERE interval_time >= $__timeFrom\n  AND interval_time + INTERVAL '1 hour' <= $__timeTo\nGROUP BY hour\nORDER BY hour",
           "refId": "A"
         }
       ],
-      "title": "Average by Hour of Day",
+      "title": "Electricity Import by Hour of Day",
       "type": "barchart"
     },
     {
@@ -896,200 +1114,27 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 16,
-        "x": 8,
-        "y": 27
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "calcs": [
-            "min",
-            "max",
-            "mean",
-            "sum"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "13.0.7",
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "format": "time_series",
-          "rawQuery": true,
-          "rawSql": "WITH daily AS (\n  SELECT\n    date_bin_wallclock(\n      INTERVAL '1 day',\n      tz(time, '${account_timezone}')\n    ) AS day,\n    SUM(CASE WHEN \"direction\" = 'import' THEN \"kWh\" ELSE 0.0 END)\n      AS imported,\n    SUM(CASE WHEN \"direction\" = 'export' THEN \"kWh\" ELSE 0.0 END)\n      AS exported\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" IN ('import', 'export')\n    AND $__timeFilter(time)\n  GROUP BY 1\n)\nSELECT\n  day AS time,\n  SUM(imported) OVER (\n    ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS \"Cumulative import\",\n  SUM(exported) OVER (\n    ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS \"Cumulative export\"\nFROM daily\nORDER BY day",
-          "refId": "A"
-        }
-      ],
-      "title": "Cumulative Grid Energy",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 35
-      },
-      "id": 104,
-      "panels": [],
-      "title": "Gas",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${datasource}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 70,
-            "gradientMode": "opacity",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 3,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 16,
-        "x": 0,
-        "y": 36
-      },
-      "id": 12,
-      "options": {
-        "legend": {
-          "calcs": [
-            "min",
-            "max",
-            "mean",
-            "sum"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "13.0.7",
-      "targets": [
-        {
-          "datasource": {
-            "type": "influxdb",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "format": "time_series",
-          "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"${gas_unit}\") AS \"Gas ${gas_unit}\"\nFROM \"${usage_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
-          "refId": "A"
-        }
-      ],
-      "title": "Daily Gas Usage (${gas_unit})",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "influxdb",
-        "uid": "${datasource}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#FF9830",
-            "mode": "fixed"
-          },
-          "decimals": 2,
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#FF9830",
-                "value": null
-              }
-            ]
-          },
-          "unit": "currencyGBP"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 36
+        "w": 12,
+        "x": 12,
+        "y": 33
       },
       "id": 13,
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "horizontal",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
-            "lastNotNull"
+            "min",
+            "max",
+            "mean",
+            "sum"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name",
-        "wideLayout": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "13.0.7",
       "targets": [
@@ -1099,14 +1144,14 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "format": "table",
+          "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COALESCE(SUM(CASE\n    WHEN \"cost_type\" = 'usage' THEN \"value_gbp\"\n    ELSE 0.0\n  END), 0.0) AS \"Usage cost\",\n  COALESCE(SUM(CASE\n    WHEN \"cost_type\" = 'standing' THEN \"value_gbp\"\n    ELSE 0.0\n  END), 0.0) AS \"Standing charge\",\n  COALESCE(SUM(\"value_gbp\"), 0.0) AS \"Total cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND $__timeFilter(time)",
+          "rawSql": "WITH daily AS (\n  SELECT\n    date_bin_wallclock(\n      INTERVAL '1 day',\n      tz(time, '${account_timezone}')\n    ) AS day,\n    SUM(\"kWh\") AS imported\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" = 'import'\n    AND $__timeFilter(time)\n  GROUP BY 1\n)\nSELECT\n  day AS time,\n  SUM(imported) OVER (\n    ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n  ) AS \"Cumulative import\"\nFROM daily\nORDER BY day",
           "refId": "A"
         }
       ],
-      "title": "Gas Cost",
-      "type": "stat"
+      "title": "Cumulative Electricity Import",
+      "type": "timeseries"
     },
     {
       "collapsed": false,
@@ -1114,7 +1159,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 41
       },
       "id": 105,
       "panels": [],
@@ -1151,7 +1196,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 42
       },
       "id": 14,
       "options": {
@@ -1312,30 +1357,9 @@
       {
         "current": {
           "selected": true,
-          "text": "m3",
-          "value": "m3"
+          "text": "Intelligent Octopus Go 12M Fixed [H]",
+          "value": "E-1R-INTELLI-FIX-12M-26-06-13-H"
         },
-        "hide": 0,
-        "label": "Gas unit",
-        "name": "gas_unit",
-        "options": [
-          {
-            "selected": true,
-            "text": "m3",
-            "value": "m3"
-          },
-          {
-            "selected": false,
-            "text": "kWh",
-            "value": "kWh"
-          }
-        ],
-        "query": "m3,kWh",
-        "skipUrlSync": false,
-        "type": "custom"
-      },
-      {
-        "current": {},
         "datasource": {
           "type": "influxdb",
           "uid": "${datasource}"
@@ -1355,27 +1379,11 @@
         "type": "query"
       },
       {
-        "current": {},
-        "datasource": {
-          "type": "influxdb",
-          "uid": "${datasource}"
+        "current": {
+          "selected": true,
+          "text": "Flexible Octopus [H]",
+          "value": "G-1R-VAR-22-11-01-H"
         },
-        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
-        "hide": 0,
-        "includeAll": false,
-        "multi": false,
-        "name": "electricity_export_tariff",
-        "options": [],
-        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
-        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
-        "refresh": 2,
-        "regex": "/(?<text>.+)#@#(?<value>.+)/g",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
-      },
-      {
-        "current": {},
         "datasource": {
           "type": "influxdb",
           "uid": "${datasource}"

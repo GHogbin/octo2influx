@@ -226,20 +226,24 @@ Docker Compose provisions:
 
 - an InfluxDB 3 SQL datasource using `INFLUXDB_TOKEN` from `.env`;
 - [`grafana/dashboard.json`](grafana/dashboard.json), an operational overview
-  inspired by modern home-energy dashboards, with six colored KPI tiles, daily
-  grid energy, cost/revenue, rate trends, hour-of-day usage, cumulative energy,
-  gas, and ingestion health;
+  focused on available electricity-import and gas data: six current KPI tiles,
+  daily electricity cost, selected electricity/gas rates, daily electricity
+  import, converted gas kWh and tariff rate, selected tariff timeline,
+  hour-of-day import, cumulative import, and ingestion health;
 - [`grafana/historical-dashboard.json`](grafana/historical-dashboard.json), a
   recent analysis view with tariff timelines, per-meter history, tariff
   comparison, and cumulative totals;
-- variables for datasource, measurements, gas unit, account timezone, and
-  comparison tariffs;
+- variables for datasource, measurements, account timezone, and comparison
+  tariffs. The generated defaults select Intelligent Octopus Go for electricity
+  and Flexible Octopus for gas;
 - summed multi-meter usage, materialised tariff costs, DST-safe daily totals,
   multi-rate price series, and latest synchronization health.
 
-Solar generation, battery state/power, and account balance are not shown because
-the importer does not collect those sources. The layout deliberately avoids
-inventing values to fill attractive rectangles.
+PDF meter-reading totals, account balance, wholesale gas prices, export credit,
+solar generation, and battery state/power are not shown because the importer
+does not collect those sources. Export panels remain in the analysis dashboard
+but require an export usage stream. The layout deliberately avoids inventing
+values to fill attractive rectangles.
 
 InfluxDB 3 Core does not compact Parquet files. The supplied Core stack therefore
 uses a bounded query-file limit with a three-day overview and seven-day analysis

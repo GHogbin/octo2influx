@@ -18,6 +18,17 @@ COLORS = {
     'purple': '#A352CC',
 }
 
+DEFAULT_TARIFFS = {
+    'electricity_import_tariff': {
+        'text': 'Intelligent Octopus Go 12M Fixed [H]',
+        'value': 'E-1R-INTELLI-FIX-12M-26-06-13-H',
+    },
+    'gas_tariff': {
+        'text': 'Flexible Octopus [H]',
+        'value': 'G-1R-VAR-22-11-01-H',
+    },
+}
+
 
 def sql(value: str) -> str:
     return dedent(value).strip()
@@ -51,6 +62,56 @@ NET_GRID_TOTAL = sql('''
     FROM "${usage_measurement}"
     WHERE "energy_type" = 'electricity'
       AND "direction" IN ('import', 'export')
+      AND $__timeFilter(time)
+''')
+
+ELECTRICITY_USAGE_COST_TOTAL = sql('''
+    SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'electricity'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${electricity_import_tariff}'
+      AND "cost_type" = 'usage'
+      AND $__timeFilter(time)
+''')
+
+ELECTRICITY_STANDING_COST_TOTAL = sql('''
+    SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'electricity'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${electricity_import_tariff}'
+      AND "cost_type" = 'standing'
+      AND $__timeFilter(time)
+''')
+
+ELECTRICITY_TOTAL_COST = sql('''
+    SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'electricity'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${electricity_import_tariff}'
+      AND "cost_type" IN ('usage', 'standing')
+      AND $__timeFilter(time)
+''')
+
+GAS_KWH_TOTAL = sql('''
+    SELECT COALESCE(SUM("billing_consumption_kwh"), 0.0) AS "_value"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'gas'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${gas_tariff}'
+      AND "cost_type" = 'usage'
+      AND $__timeFilter(time)
+''')
+
+GAS_TOTAL_COST = sql('''
+    SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'gas'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${gas_tariff}'
+      AND "cost_type" IN ('usage', 'standing')
       AND $__timeFilter(time)
 ''')
 
@@ -174,6 +235,31 @@ DAILY_FINANCIALS = sql('''
     ORDER BY 1
 ''')
 
+DAILY_ELECTRICITY_COST = sql('''
+    SELECT
+      date_bin_wallclock(
+        INTERVAL '1 day',
+        tz(time, '${account_timezone}')
+      ) AS time,
+      SUM(CASE
+        WHEN "cost_type" = 'usage' THEN "value_gbp"
+        ELSE 0.0
+      END) AS "Usage cost",
+      SUM(CASE
+        WHEN "cost_type" = 'standing' THEN "value_gbp"
+        ELSE 0.0
+      END) AS "Standing charge",
+      SUM("value_gbp") AS "Total cost"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'electricity'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${electricity_import_tariff}'
+      AND "cost_type" IN ('usage', 'standing')
+      AND $__timeFilter(time)
+    GROUP BY 1
+    ORDER BY 1
+''')
+
 IMPORT_RATES = sql('''
     WITH rates AS (
       SELECT
@@ -226,10 +312,41 @@ EXPORT_RATES = sql('''
     ORDER BY time
 ''')
 
+ELECTRICITY_COST_RATES = sql('''
+    SELECT
+      date_bin_gapfill(INTERVAL '30 minutes', time) AS time,
+      "price_type",
+      locf(avg("unit_rate_pence")) / 100.0 AS "Electricity £/kWh"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'electricity'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${electricity_import_tariff}'
+      AND "cost_type" = 'usage'
+      AND time >= $__timeFrom
+      AND time <= $__timeTo
+    GROUP BY 1, "price_type"
+    ORDER BY 1
+''')
+
+GAS_COST_RATES = sql('''
+    SELECT
+      date_bin_gapfill(INTERVAL '30 minutes', time) AS time,
+      locf(avg("unit_rate_pence")) / 100.0 AS "Gas £/kWh"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'gas'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${gas_tariff}'
+      AND "cost_type" = 'usage'
+      AND time >= $__timeFrom
+      AND time <= $__timeTo
+    GROUP BY 1
+    ORDER BY 1
+''')
+
 HOURLY_PROFILE = sql('''
     WITH intervals AS (
       SELECT
-        date_bin(INTERVAL '30 minutes', time) AS interval_time,
+        date_bin(INTERVAL '1 hour', time) AS interval_time,
         date_part('hour', tz(time, '${account_timezone}')) AS hour,
         "direction",
         SUM("kWh") AS kwh
@@ -246,6 +363,30 @@ HOURLY_PROFILE = sql('''
       AVG(CASE WHEN "direction" = 'export' THEN kwh END)
         AS "Average export"
     FROM intervals
+    WHERE interval_time >= $__timeFrom
+      AND interval_time + INTERVAL '1 hour' <= $__timeTo
+    GROUP BY hour
+    ORDER BY hour
+''')
+
+IMPORT_HOURLY_PROFILE = sql('''
+    WITH intervals AS (
+      SELECT
+        date_bin(INTERVAL '1 hour', time) AS interval_time,
+        date_part('hour', tz(time, '${account_timezone}')) AS hour,
+        SUM("kWh") AS kwh
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND $__timeFilter(time)
+      GROUP BY 1, 2
+    )
+    SELECT
+      hour AS "Hour",
+      AVG(kwh) AS "Average import"
+    FROM intervals
+    WHERE interval_time >= $__timeFrom
+      AND interval_time + INTERVAL '1 hour' <= $__timeTo
     GROUP BY hour
     ORDER BY hour
 ''')
@@ -279,6 +420,29 @@ CUMULATIVE_ENERGY = sql('''
     ORDER BY day
 ''')
 
+CUMULATIVE_IMPORT = sql('''
+    WITH daily AS (
+      SELECT
+        date_bin_wallclock(
+          INTERVAL '1 day',
+          tz(time, '${account_timezone}')
+        ) AS day,
+        SUM("kWh") AS imported
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND $__timeFilter(time)
+      GROUP BY 1
+    )
+    SELECT
+      day AS time,
+      SUM(imported) OVER (
+        ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS "Cumulative import"
+    FROM daily
+    ORDER BY day
+''')
+
 GAS_DAILY = sql('''
     SELECT
       date_bin_wallclock(
@@ -289,6 +453,24 @@ GAS_DAILY = sql('''
     FROM "${usage_measurement}"
     WHERE "energy_type" = 'gas'
       AND "direction" = 'import'
+      AND $__timeFilter(time)
+    GROUP BY 1
+    ORDER BY 1
+''')
+
+GAS_DAILY_KWH_RATE = sql('''
+    SELECT
+      date_bin_wallclock(
+        INTERVAL '1 day',
+        tz(time, '${account_timezone}')
+      ) AS time,
+      SUM("billing_consumption_kwh") AS "Gas kWh",
+      AVG("unit_rate_pence") / 100.0 AS "Gas £/kWh"
+    FROM "${cost_measurement}"
+    WHERE "energy_type" = 'gas'
+      AND "direction" = 'import'
+      AND "tariff_code" = '${gas_tariff}'
+      AND "cost_type" = 'usage'
       AND $__timeFilter(time)
     GROUP BY 1
     ORDER BY 1
@@ -391,6 +573,62 @@ GAS_TARIFF_TIMELINE = sql('''
     ORDER BY time
 ''')
 
+SELECTED_IMPORT_TARIFF_TIMELINE = sql('''
+    WITH seed AS (
+      SELECT "display_name" AS "Electricity tariff"
+      FROM "${tariffs_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "tariff_code" = '${electricity_import_tariff}'
+        AND "price_type" = 'standing-charges'
+        AND time >= $__timeFrom - INTERVAL '2 days'
+        AND time < $__timeFrom
+      ORDER BY time DESC
+      LIMIT 1
+    ),
+    timeline AS (
+      SELECT time, "display_name" AS "Electricity tariff"
+      FROM "${tariffs_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "tariff_code" = '${electricity_import_tariff}'
+        AND "price_type" = 'standing-charges'
+        AND $__timeFilter(time)
+    )
+    SELECT $__timeFrom AS time, "Electricity tariff" FROM seed
+    UNION ALL
+    SELECT time, "Electricity tariff" FROM timeline
+    ORDER BY time
+''')
+
+SELECTED_GAS_TARIFF_TIMELINE = sql('''
+    WITH seed AS (
+      SELECT "display_name" AS "Gas tariff"
+      FROM "${tariffs_measurement}"
+      WHERE "energy_type" = 'gas'
+        AND "direction" = 'import'
+        AND "tariff_code" = '${gas_tariff}'
+        AND "price_type" = 'standing-charges'
+        AND time >= $__timeFrom - INTERVAL '2 days'
+        AND time < $__timeFrom
+      ORDER BY time DESC
+      LIMIT 1
+    ),
+    timeline AS (
+      SELECT time, "display_name" AS "Gas tariff"
+      FROM "${tariffs_measurement}"
+      WHERE "energy_type" = 'gas'
+        AND "direction" = 'import'
+        AND "tariff_code" = '${gas_tariff}'
+        AND "price_type" = 'standing-charges'
+        AND $__timeFilter(time)
+    )
+    SELECT $__timeFrom AS time, "Gas tariff" FROM seed
+    UNION ALL
+    SELECT time, "Gas tariff" FROM timeline
+    ORDER BY time
+''')
+
 
 def target(query: str, ref_id: str = 'A',
            output_format: str = 'time_series') -> dict:
@@ -462,7 +700,8 @@ def timeseries(panel_id: int, title: str, targets: list[dict],
                x: int, y: int, width: int, height: int,
                unit: str, draw_style: str = 'line',
                stacking: str = 'none', fill_opacity: int = 20,
-               description: str = '') -> dict:
+               description: str = '',
+               overrides: list[dict] | None = None) -> dict:
     panel = {
         'datasource': DATASOURCE.copy(),
         'fieldConfig': {
@@ -498,7 +737,7 @@ def timeseries(panel_id: int, title: str, targets: list[dict],
                 },
                 'unit': unit,
             },
-            'overrides': [],
+            'overrides': overrides or [],
         },
         'gridPos': {'h': height, 'w': width, 'x': x, 'y': y},
         'id': panel_id,
@@ -632,7 +871,9 @@ def state_timeline(panel_id: int, title: str, targets: list[dict],
     }
 
 
-def variables(include_history: bool = False) -> list[dict]:
+def variables(include_history: bool = False,
+              include_export: bool = True,
+              include_gas_unit: bool = True) -> list[dict]:
     values = [{
         'current': {
             'selected': True,
@@ -679,7 +920,9 @@ def variables(include_history: bool = False) -> list[dict]:
         textbox_variable('tariffs_measurement', 'octopus-tariffs'),
         textbox_variable('cost_measurement', 'octopus-costs'),
         textbox_variable('status_measurement', 'octopus-sync-status'),
-        {
+    ])
+    if include_gas_unit:
+        values.append({
             'current': {'selected': True, 'text': 'm3', 'value': 'm3'},
             'hide': 0,
             'label': 'Gas unit',
@@ -691,13 +934,17 @@ def variables(include_history: bool = False) -> list[dict]:
             'query': 'm3,kWh',
             'skipUrlSync': False,
             'type': 'custom',
-        },
+        })
+    values.append(
         tariff_variable(
-            'electricity_import_tariff', 'electricity', 'import'),
-        tariff_variable(
-            'electricity_export_tariff', 'electricity', 'export'),
-        tariff_variable('gas_tariff', 'gas', 'import'),
-    ])
+            'electricity_import_tariff', 'electricity', 'import')
+    )
+    if include_export:
+        values.append(
+            tariff_variable(
+                'electricity_export_tariff', 'electricity', 'export')
+        )
+    values.append(tariff_variable('gas_tariff', 'gas', 'import'))
     return values
 
 
@@ -731,7 +978,10 @@ def tariff_variable(name: str, energy_type: str,
         ORDER BY "display_value"
     ''')
     return {
-        'current': {},
+        'current': {
+            'selected': True,
+            **DEFAULT_TARIFFS.get(name, {}),
+        } if name in DEFAULT_TARIFFS else {},
         'datasource': DATASOURCE.copy(),
         'definition': query,
         'hide': 0,
@@ -751,7 +1001,9 @@ def tariff_variable(name: str, energy_type: str,
 
 def base_dashboard(title: str, uid: str, panels: list[dict],
                    default_from: str,
-                   include_history: bool = False) -> dict:
+                   include_history: bool = False,
+                   include_export: bool = True,
+                   include_gas_unit: bool = True) -> dict:
     return {
         'annotations': {
             'list': [{
@@ -783,7 +1035,13 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
         'refresh': '1h',
         'schemaVersion': 39,
         'tags': ['octopus-energy', 'octo2influx'],
-        'templating': {'list': variables(include_history)},
+        'templating': {
+            'list': variables(
+                include_history,
+                include_export,
+                include_gas_unit,
+            ),
+        },
         'time': {'from': default_from, 'to': 'now-18h'},
         'timepicker': {
             'refresh_intervals': [
@@ -804,76 +1062,113 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
 def build_overview_dashboard() -> dict:
     panels = [
         row(100, 'At-a-glance', 0),
-        stat(1, 'Grid Imported', IMPORT_TOTAL, 0, 1, 4,
+        stat(1, 'Electricity Imported', IMPORT_TOTAL, 0, 1, 4,
              COLORS['red'], 'kwatth'),
-        stat(2, 'Grid Exported', EXPORT_TOTAL, 4, 1, 4,
-             COLORS['blue'], 'kwatth'),
-        stat(3, 'Net Grid', NET_GRID_TOTAL, 8, 1, 4,
-             COLORS['orange'], 'kwatth'),
-        stat(4, 'Import Cost', IMPORT_COST_TOTAL, 12, 1, 4,
+        stat(2, 'Electricity Usage Cost',
+             ELECTRICITY_USAGE_COST_TOTAL, 4, 1, 4,
              COLORS['green'], 'currencyGBP'),
-        stat(5, 'Export Revenue', EXPORT_REVENUE_TOTAL, 16, 1, 4,
-             COLORS['purple'], 'currencyGBP'),
-        stat(6, 'Net Cost', NET_COST_TOTAL, 20, 1, 4,
+        stat(3, 'Electricity Standing Charge',
+             ELECTRICITY_STANDING_COST_TOTAL, 8, 1, 4,
              COLORS['yellow'], 'currencyGBP'),
-        row(101, 'Daily Energy', 5),
+        stat(4, 'Electricity Total Cost',
+             ELECTRICITY_TOTAL_COST, 12, 1, 4,
+             COLORS['blue'], 'currencyGBP'),
+        stat(5, 'Gas Used', GAS_KWH_TOTAL, 16, 1, 4,
+             COLORS['orange'], 'kwatth'),
+        stat(6, 'Gas Total Cost', GAS_TOTAL_COST, 20, 1, 4,
+             COLORS['purple'], 'currencyGBP'),
+        row(101, 'Costs and Unit Rates', 5),
         timeseries(
             7,
-            'Daily Grid Energy',
-            [
-                target(DAILY_IMPORT, 'Import'),
-                target(DAILY_EXPORT, 'Export'),
-            ],
-            0, 6, 24, 10, 'kwatth',
-            draw_style='bars', stacking='normal', fill_opacity=80,
-            description=(
-                'Import is positive and export is negative. '
-                'Daily boundaries follow the account timezone.'
-            ),
+            'Daily Electricity Cost',
+            [target(DAILY_ELECTRICITY_COST)],
+            0, 6, 12, 9, 'currencyGBP',
+            draw_style='bars', fill_opacity=60,
+            overrides=[{
+                'matcher': {'id': 'byName', 'options': 'Total cost'},
+                'properties': [
+                    {'id': 'custom.drawStyle', 'value': 'line'},
+                    {'id': 'custom.fillOpacity', 'value': 5},
+                    {'id': 'custom.lineWidth', 'value': 2},
+                ],
+            }],
         ),
-        row(102, 'Financials and Unit Rates', 16),
         timeseries(
             8,
-            'Daily Cost and Revenue',
-            [target(DAILY_FINANCIALS)],
-            0, 17, 14, 9, 'currencyGBP',
-            draw_style='bars', fill_opacity=55,
+            'Electricity and Gas Unit Rates',
+            [
+                target(ELECTRICITY_COST_RATES, 'Electricity'),
+                target(GAS_COST_RATES, 'Gas'),
+            ],
+            12, 6, 12, 9, 'currencyGBP',
+            draw_style='line', fill_opacity=12,
+            description=(
+                'Rates used for the selected Intelligent Octopus Go and '
+                'Flexible Octopus Direct Debit cost calculations.'
+            ),
         ),
+        row(102, 'Metering', 15),
         timeseries(
             9,
-            'Unit Rates over Time',
-            [
-                target(IMPORT_RATES, 'Import'),
-                target(EXPORT_RATES, 'Export'),
-            ],
-            14, 17, 10, 9, 'currencyGBP',
-            draw_style='line', fill_opacity=15,
+            'Daily Electricity Import',
+            [target(DAILY_IMPORT, 'Import')],
+            0, 16, 12, 9, 'kwatth',
+            draw_style='bars', fill_opacity=75,
+            description='Daily smart-meter electricity import.',
         ),
-        row(103, 'Usage Patterns', 26),
-        bar_chart(
-            10, 'Average by Hour of Day',
-            HOURLY_PROFILE, 0, 27, 8, 8, 'kwatth'),
         timeseries(
+            10,
+            'Gas: Daily kWh and Tariff Rate',
+            [target(GAS_DAILY_KWH_RATE)],
+            12, 16, 12, 9, 'kwatth',
+            draw_style='bars', fill_opacity=65,
+            description=(
+                'Gas kWh is estimated from m³ using the configured 11.1868 '
+                'factor. The line is the Direct Debit tariff rate.'
+            ),
+            overrides=[{
+                'matcher': {'id': 'byName', 'options': 'Gas £/kWh'},
+                'properties': [
+                    {'id': 'unit', 'value': 'currencyGBP'},
+                    {'id': 'custom.axisPlacement', 'value': 'right'},
+                    {'id': 'custom.drawStyle', 'value': 'line'},
+                    {'id': 'custom.fillOpacity', 'value': 0},
+                    {'id': 'custom.lineWidth', 'value': 2},
+                ],
+            }],
+        ),
+        row(103, 'Selected Tariffs', 25),
+        state_timeline(
             11,
-            'Cumulative Grid Energy',
-            [target(CUMULATIVE_ENERGY)],
-            8, 27, 16, 8, 'kwatth',
+            'Electricity and Gas Tariffs',
+            [
+                target(
+                    SELECTED_IMPORT_TARIFF_TIMELINE,
+                    'Electricity',
+                    output_format='table',
+                ),
+                target(
+                    SELECTED_GAS_TARIFF_TIMELINE,
+                    'Gas',
+                    output_format='table',
+                ),
+            ],
+            0, 26, 24, 6,
+        ),
+        row(104, 'Usage Patterns', 32),
+        bar_chart(
+            12, 'Electricity Import by Hour of Day',
+            IMPORT_HOURLY_PROFILE, 0, 33, 12, 8, 'kwatth'),
+        timeseries(
+            13,
+            'Cumulative Electricity Import',
+            [target(CUMULATIVE_IMPORT)],
+            12, 33, 12, 8, 'kwatth',
             draw_style='line', fill_opacity=12,
         ),
-        row(104, 'Gas', 35),
-        timeseries(
-            12,
-            'Daily Gas Usage (${gas_unit})',
-            [target(GAS_DAILY)],
-            0, 36, 16, 8, 'short',
-            draw_style='bars', fill_opacity=70,
-        ),
+        row(105, 'Ingestion Health', 41),
         stat(
-            13, 'Gas Cost', GAS_COST_TOTAL, 16, 36, 8,
-            COLORS['orange'], 'currencyGBP', height=8),
-        row(105, 'Ingestion Health', 44),
-        stat(
-            14, 'Latest Synchronization', LATEST_SYNC, 0, 45, 24,
+            14, 'Latest Synchronization', LATEST_SYNC, 0, 42, 24,
             COLORS['green'], 'short', height=5),
     ]
     return base_dashboard(
@@ -881,6 +1176,8 @@ def build_overview_dashboard() -> dict:
         'octo2influx-overview',
         panels,
         'now-3d',
+        include_export=False,
+        include_gas_unit=False,
     )
 
 

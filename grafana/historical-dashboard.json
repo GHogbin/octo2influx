@@ -515,7 +515,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH intervals AS (\n  SELECT\n    date_bin(INTERVAL '30 minutes', time) AS interval_time,\n    date_part('hour', tz(time, '${account_timezone}')) AS hour,\n    \"direction\",\n    SUM(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" IN ('import', 'export')\n    AND $__timeFilter(time)\n  GROUP BY 1, 2, 3\n)\nSELECT\n  hour AS \"Hour\",\n  AVG(CASE WHEN \"direction\" = 'import' THEN kwh END)\n    AS \"Average import\",\n  AVG(CASE WHEN \"direction\" = 'export' THEN kwh END)\n    AS \"Average export\"\nFROM intervals\nGROUP BY hour\nORDER BY hour",
+          "rawSql": "WITH intervals AS (\n  SELECT\n    date_bin(INTERVAL '1 hour', time) AS interval_time,\n    date_part('hour', tz(time, '${account_timezone}')) AS hour,\n    \"direction\",\n    SUM(\"kWh\") AS kwh\n  FROM \"${usage_measurement}\"\n  WHERE \"energy_type\" = 'electricity'\n    AND \"direction\" IN ('import', 'export')\n    AND $__timeFilter(time)\n  GROUP BY 1, 2, 3\n)\nSELECT\n  hour AS \"Hour\",\n  AVG(CASE WHEN \"direction\" = 'import' THEN kwh END)\n    AS \"Average import\",\n  AVG(CASE WHEN \"direction\" = 'export' THEN kwh END)\n    AS \"Average export\"\nFROM intervals\nWHERE interval_time >= $__timeFrom\n  AND interval_time + INTERVAL '1 hour' <= $__timeTo\nGROUP BY hour\nORDER BY hour",
           "refId": "A"
         }
       ],
@@ -1206,7 +1206,11 @@
         "type": "custom"
       },
       {
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "Intelligent Octopus Go 12M Fixed [H]",
+          "value": "E-1R-INTELLI-FIX-12M-26-06-13-H"
+        },
         "datasource": {
           "type": "influxdb",
           "uid": "${datasource}"
@@ -1246,7 +1250,11 @@
         "type": "query"
       },
       {
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "Flexible Octopus [H]",
+          "value": "G-1R-VAR-22-11-01-H"
+        },
         "datasource": {
           "type": "influxdb",
           "uid": "${datasource}"
