@@ -227,9 +227,9 @@ Docker Compose provisions:
 - an InfluxDB 3 SQL datasource using `INFLUXDB_TOKEN` from `.env`;
 - [`grafana/dashboard.json`](grafana/dashboard.json), an operational overview
   focused on available electricity-import and gas data: six current KPI tiles,
-  daily electricity cost, selected electricity/gas rates, daily electricity
-  import, converted gas kWh and tariff rate, selected tariff timeline,
-  hour-of-day import, cumulative import, and ingestion health;
+  selectable 30-minute/hourly electricity usage cost, selected electricity/gas
+  rates, daily electricity import, converted gas kWh and tariff rate, selected
+  tariff timeline, hour-of-day import, cumulative import, and ingestion health;
 - [`grafana/historical-dashboard.json`](grafana/historical-dashboard.json), a
   recent analysis view with tariff timelines, per-meter history, tariff
   comparison, and cumulative totals;

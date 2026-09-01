@@ -235,18 +235,15 @@ DAILY_FINANCIALS = sql('''
     ORDER BY 1
 ''')
 
-DAILY_ELECTRICITY_COST = sql('''
+ELECTRICITY_INTERVAL_COST = sql('''
     SELECT
-      date_bin_wallclock(
-        INTERVAL '1 day',
-        tz(time, '${account_timezone}')
-      ) AS time,
-      SUM("value_gbp") AS "Daily electricity cost"
+      date_bin(INTERVAL '${cost_interval}', time) AS time,
+      SUM("value_gbp") AS "Electricity usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
-      AND "cost_type" IN ('usage', 'standing')
+      AND "cost_type" = 'usage'
       AND $__timeFilter(time)
     GROUP BY 1
     ORDER BY 1
@@ -865,7 +862,8 @@ def state_timeline(panel_id: int, title: str, targets: list[dict],
 
 def variables(include_history: bool = False,
               include_export: bool = True,
-              include_gas_unit: bool = True) -> list[dict]:
+              include_gas_unit: bool = True,
+              include_cost_interval: bool = False) -> list[dict]:
     values = [{
         'current': {
             'selected': True,
@@ -924,6 +922,32 @@ def variables(include_history: bool = False,
                 {'selected': False, 'text': 'kWh', 'value': 'kWh'},
             ],
             'query': 'm3,kWh',
+            'skipUrlSync': False,
+            'type': 'custom',
+        })
+    if include_cost_interval:
+        values.append({
+            'current': {
+                'selected': True,
+                'text': '30 minutes',
+                'value': '30 minutes',
+            },
+            'hide': 0,
+            'label': 'Electricity cost interval',
+            'name': 'cost_interval',
+            'options': [
+                {
+                    'selected': True,
+                    'text': '30 minutes',
+                    'value': '30 minutes',
+                },
+                {
+                    'selected': False,
+                    'text': '1 hour',
+                    'value': '1 hour',
+                },
+            ],
+            'query': '30 minutes,1 hour',
             'skipUrlSync': False,
             'type': 'custom',
         })
@@ -995,7 +1019,8 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                    default_from: str,
                    include_history: bool = False,
                    include_export: bool = True,
-                   include_gas_unit: bool = True) -> dict:
+                   include_gas_unit: bool = True,
+                   include_cost_interval: bool = False) -> dict:
     return {
         'annotations': {
             'list': [{
@@ -1032,6 +1057,7 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                 include_history,
                 include_export,
                 include_gas_unit,
+                include_cost_interval,
             ),
         },
         'time': {'from': default_from, 'to': 'now-18h'},
@@ -1072,10 +1098,14 @@ def build_overview_dashboard() -> dict:
         row(101, 'Costs and Unit Rates', 5),
         timeseries(
             7,
-            'Daily Electricity Cost',
-            [target(DAILY_ELECTRICITY_COST)],
+            'Electricity Usage Cost by Interval',
+            [target(ELECTRICITY_INTERVAL_COST)],
             0, 6, 12, 9, 'currencyGBP',
             draw_style='bars', fill_opacity=60,
+            description=(
+                'Usage cost grouped into the selected 30-minute or one-hour '
+                'interval. Standing charge remains in the KPI tile.'
+            ),
         ),
         timeseries(
             8,
@@ -1162,6 +1192,7 @@ def build_overview_dashboard() -> dict:
         'now-3d',
         include_export=False,
         include_gas_unit=False,
+        include_cost_interval=True,
     )
 
 

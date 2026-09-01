@@ -532,12 +532,13 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"value_gbp\") AS \"Daily electricity cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin(INTERVAL '${cost_interval}', time) AS time,\n  SUM(\"value_gbp\") AS \"Electricity usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Daily Electricity Cost",
-      "type": "timeseries"
+      "title": "Electricity Usage Cost by Interval",
+      "type": "timeseries",
+      "description": "Usage cost grouped into the selected 30-minute or one-hour interval. Standing charge remains in the KPI tile."
     },
     {
       "datasource": {
@@ -1332,6 +1333,31 @@
         "query": "octopus-sync-status",
         "skipUrlSync": false,
         "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "30 minutes",
+          "value": "30 minutes"
+        },
+        "hide": 0,
+        "label": "Electricity cost interval",
+        "name": "cost_interval",
+        "options": [
+          {
+            "selected": true,
+            "text": "30 minutes",
+            "value": "30 minutes"
+          },
+          {
+            "selected": false,
+            "text": "1 hour",
+            "value": "1 hour"
+          }
+        ],
+        "query": "30 minutes,1 hour",
+        "skipUrlSync": false,
+        "type": "custom"
       },
       {
         "current": {

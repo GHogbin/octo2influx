@@ -190,6 +190,9 @@ def test_overview_matches_reference_information_hierarchy():
         panel for panel in dashboard['panels']
         if panel['type'] == 'stat' and panel['gridPos']['y'] == 1
     ]
+    variables = {
+        item['name']: item for item in dashboard['templating']['list']
+    }
 
     assert dashboard['time']['from'] == 'now-3d'
     assert len(stat_panels) == 6
@@ -202,7 +205,7 @@ def test_overview_matches_reference_information_hierarchy():
         'Gas Total Cost',
     }.issubset(titles)
     assert {
-        'Daily Electricity Cost',
+        'Electricity Usage Cost by Interval',
         'Electricity and Gas Unit Rates',
         'Daily Electricity Import',
         'Gas: Daily kWh and Tariff Rate',
@@ -216,13 +219,18 @@ def test_overview_matches_reference_information_hierarchy():
     }.intersection(titles)
     daily_cost_panel = next(
         panel for panel in dashboard['panels']
-        if panel['title'] == 'Daily Electricity Cost'
+        if panel['title'] == 'Electricity Usage Cost by Interval'
     )
     daily_cost_query = daily_cost_panel['targets'][0]['rawSql']
-    assert 'AS "Daily electricity cost"' in daily_cost_query
-    assert 'AS "Usage cost"' not in daily_cost_query
-    assert 'AS "Standing charge"' not in daily_cost_query
+    assert "date_bin(INTERVAL '${cost_interval}', time)" in (
+        daily_cost_query
+    )
+    assert 'AS "Electricity usage cost"' in daily_cost_query
+    assert '"cost_type" = \'usage\'' in daily_cost_query
+    assert 'standing' not in daily_cost_query
     assert daily_cost_panel['fieldConfig']['overrides'] == []
+    assert variables['cost_interval']['query'] == '30 minutes,1 hour'
+    assert variables['cost_interval']['current']['value'] == '30 minutes'
     gas_panel = next(
         panel for panel in dashboard['panels']
         if panel['title'] == 'Gas: Daily kWh and Tariff Rate'
