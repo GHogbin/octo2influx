@@ -214,6 +214,15 @@ def test_overview_matches_reference_information_hierarchy():
         'Grid Exported',
         'Export Revenue',
     }.intersection(titles)
+    daily_cost_panel = next(
+        panel for panel in dashboard['panels']
+        if panel['title'] == 'Daily Electricity Cost'
+    )
+    daily_cost_query = daily_cost_panel['targets'][0]['rawSql']
+    assert 'AS "Daily electricity cost"' in daily_cost_query
+    assert 'AS "Usage cost"' not in daily_cost_query
+    assert 'AS "Standing charge"' not in daily_cost_query
+    assert daily_cost_panel['fieldConfig']['overrides'] == []
     gas_panel = next(
         panel for panel in dashboard['panels']
         if panel['title'] == 'Gas: Daily kWh and Tariff Rate'

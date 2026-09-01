@@ -241,15 +241,7 @@ DAILY_ELECTRICITY_COST = sql('''
         INTERVAL '1 day',
         tz(time, '${account_timezone}')
       ) AS time,
-      SUM(CASE
-        WHEN "cost_type" = 'usage' THEN "value_gbp"
-        ELSE 0.0
-      END) AS "Usage cost",
-      SUM(CASE
-        WHEN "cost_type" = 'standing' THEN "value_gbp"
-        ELSE 0.0
-      END) AS "Standing charge",
-      SUM("value_gbp") AS "Total cost"
+      SUM("value_gbp") AS "Daily electricity cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
       AND "direction" = 'import'
@@ -1084,14 +1076,6 @@ def build_overview_dashboard() -> dict:
             [target(DAILY_ELECTRICITY_COST)],
             0, 6, 12, 9, 'currencyGBP',
             draw_style='bars', fill_opacity=60,
-            overrides=[{
-                'matcher': {'id': 'byName', 'options': 'Total cost'},
-                'properties': [
-                    {'id': 'custom.drawStyle', 'value': 'line'},
-                    {'id': 'custom.fillOpacity', 'value': 5},
-                    {'id': 'custom.lineWidth', 'value': 2},
-                ],
-            }],
         ),
         timeseries(
             8,

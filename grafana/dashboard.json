@@ -496,28 +496,7 @@
           },
           "unit": "currencyGBP"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Total cost"
-            },
-            "properties": [
-              {
-                "id": "custom.drawStyle",
-                "value": "line"
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 5
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 2
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -553,7 +532,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(CASE\n    WHEN \"cost_type\" = 'usage' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Usage cost\",\n  SUM(CASE\n    WHEN \"cost_type\" = 'standing' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Standing charge\",\n  SUM(\"value_gbp\") AS \"Total cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin_wallclock(\n    INTERVAL '1 day',\n    tz(time, '${account_timezone}')\n  ) AS time,\n  SUM(\"value_gbp\") AS \"Daily electricity cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${electricity_import_tariff}'\n  AND \"cost_type\" IN ('usage', 'standing')\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
