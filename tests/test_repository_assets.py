@@ -43,6 +43,10 @@ def test_compose_defaults_are_local_and_authenticated():
     assert services['influx']['image'].endswith('3.11.2-core}')
     assert services['influx']['command'][0] == 'serve'
     assert 'influxdb3' not in services['influx']['command']
+    assert any(
+        str(value).startswith('--query-file-limit=')
+        for value in services['influx']['command']
+    )
     assert services['grafana']['image'].endswith('13.0.7}')
     assert services['influx']['ports'][0].startswith('127.0.0.1:')
     assert services['grafana']['ports'][0].startswith('127.0.0.1:')
@@ -122,6 +126,16 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
     assert variables['gas_unit']['query'] == 'm3,kWh'
     assert variables['cost_measurement']['query'] == 'octopus-costs'
     assert variables['status_measurement']['query'] == 'octopus-sync-status'
+    assert dashboard['timepicker']['time_options'] == [
+        '24h', '2d', '3d', '7d',
+    ]
+    for name in (
+            'electricity_import_tariff',
+            'electricity_export_tariff',
+            'gas_tariff'):
+        assert "time >= now() - INTERVAL '24 hours'" in (
+            variables[name]['query']
+        )
     assert any(panel['title'] == 'Latest Synchronization'
                for panel in dashboard['panels'])
 
@@ -144,6 +158,7 @@ def test_overview_matches_reference_information_hierarchy():
         if panel['type'] == 'stat' and panel['gridPos']['y'] == 1
     ]
 
+    assert dashboard['time']['from'] == 'now-3d'
     assert len(stat_panels) == 6
     assert {
         'Grid Imported',
@@ -168,7 +183,12 @@ def test_historical_dashboard_has_analysis_views():
     )
     panel_types = {panel['type'] for panel in dashboard['panels']}
     titles = {panel['title'] for panel in dashboard['panels']}
+    variables = {
+        item['name']: item for item in dashboard['templating']['list']
+    }
 
+    assert dashboard['time']['from'] == 'now-7d'
+    assert variables['HistoryDuration']['query'] == '3d,7d'
     assert 'state-timeline' in panel_types
     assert 'table' in panel_types
     assert {

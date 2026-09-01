@@ -230,8 +230,8 @@ Docker Compose provisions:
   grid energy, cost/revenue, rate trends, hour-of-day usage, cumulative energy,
   gas, and ingestion health;
 - [`grafana/historical-dashboard.json`](grafana/historical-dashboard.json), a
-  long-range analysis view with tariff timelines, per-meter history, tariff
-  comparison, cumulative totals, and five-year navigation;
+  recent analysis view with tariff timelines, per-meter history, tariff
+  comparison, and cumulative totals;
 - variables for datasource, measurements, gas unit, account timezone, and
   comparison tariffs;
 - summed multi-meter usage, materialised tariff costs, DST-safe daily totals,
@@ -240,6 +240,11 @@ Docker Compose provisions:
 Solar generation, battery state/power, and account balance are not shown because
 the importer does not collect those sources. The layout deliberately avoids
 inventing values to fill attractive rectangles.
+
+InfluxDB 3 Core does not compact Parquet files. The supplied Core stack therefore
+uses a bounded query-file limit with a three-day overview and seven-day analysis
+default. Longer raw-data ranges require InfluxDB 3 Enterprise compaction or
+separately maintained aggregate measurements.
 
 For an external Grafana installation, import either dashboard and select an
 InfluxDB datasource configured with SQL, the target database, token, and

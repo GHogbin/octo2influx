@@ -1086,6 +1086,24 @@ def sync_data(
                     rows.extend(page.items)
 
                 if not rows:
+                    if not related_usage:
+                        checkpoint = watermark_point(
+                            watermark_measurement,
+                            stream_id,
+                            'tariff',
+                            min(effective_to, datetime.now(timezone.utc)),
+                            0,
+                        )
+                        write_records(
+                            client, [], batch_size, checkpoint)
+                        existing_measurements.add(
+                            watermark_measurement)
+                        successful_streams.add(stream_id)
+                        logging.info(
+                            f'       ... no rates returned; checkpoint '
+                            f'advanced because no usage stream depends on '
+                            f'{tariff.tariff_code}.')
+                        continue
                     raise ValueError(
                         f'Octopus returned no rates for {stream_name}.')
                 rate_books[tariff.key].add_rows(price_type, rows)

@@ -21,6 +21,7 @@
       }
     ]
   },
+  "description": "Core-safe live view. Raw-data ranges are bounded because InfluxDB 3 Core does not compact Parquet files.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -1178,7 +1179,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  time AS \"Last run\",\n  \"status\" AS \"Status\",\n  \"successful_streams\" AS \"Successful streams\",\n  \"failed_streams\" AS \"Failed streams\",\n  \"duration_seconds\" AS \"Duration (seconds)\"\nFROM \"${status_measurement}\"\nORDER BY time DESC\nLIMIT 1",
+          "rawSql": "SELECT\n  time AS \"Last run\",\n  \"status\" AS \"Status\",\n  \"successful_streams\" AS \"Successful streams\",\n  \"failed_streams\" AS \"Failed streams\",\n  \"duration_seconds\" AS \"Duration (seconds)\"\nFROM \"${status_measurement}\"\nWHERE time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
           "refId": "A"
         }
       ],
@@ -1339,14 +1340,14 @@
           "type": "influxdb",
           "uid": "${datasource}"
         },
-        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'",
+        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "electricity_import_tariff",
         "options": [],
-        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'",
-        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'",
+        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
+        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'import'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
         "refresh": 2,
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
@@ -1359,14 +1360,14 @@
           "type": "influxdb",
           "uid": "${datasource}"
         },
-        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'",
+        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "electricity_export_tariff",
         "options": [],
-        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'",
-        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'",
+        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
+        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"direction\" = 'export'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
         "refresh": 2,
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
@@ -1379,14 +1380,14 @@
           "type": "influxdb",
           "uid": "${datasource}"
         },
-        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'",
+        "definition": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "gas_tariff",
         "options": [],
-        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'",
-        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'",
+        "query": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
+        "rawSql": "SELECT DISTINCT (\n  \"display_name\" || ' [' || right(\"tariff_code\", 1) || ']'\n  || '#@#' || \"tariff_code\"\n) AS \"display_value\"\nFROM \"${tariffs_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND time >= now() - INTERVAL '24 hours'\nORDER BY \"display_value\"",
         "refresh": 2,
         "regex": "/(?<text>.+)#@#(?<value>.+)/g",
         "skipUrlSync": false,
@@ -1396,7 +1397,7 @@
     ]
   },
   "time": {
-    "from": "now-30d",
+    "from": "now-3d",
     "to": "now-18h"
   },
   "timepicker": {
@@ -1411,11 +1412,8 @@
     "time_options": [
       "24h",
       "2d",
-      "7d",
-      "30d",
-      "90d",
-      "1y",
-      "5y"
+      "3d",
+      "7d"
     ]
   },
   "timezone": "browser",

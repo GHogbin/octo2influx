@@ -320,6 +320,7 @@ LATEST_SYNC = sql('''
       "failed_streams" AS "Failed streams",
       "duration_seconds" AS "Duration (seconds)"
     FROM "${status_measurement}"
+    WHERE time >= now() - INTERVAL '7 days'
     ORDER BY time DESC
     LIMIT 1
 ''')
@@ -655,20 +656,17 @@ def variables(include_history: bool = False) -> list[dict]:
             'auto': False,
             'current': {
                 'selected': True,
-                'text': '365d',
-                'value': '365d',
+                'text': '7d',
+                'value': '7d',
             },
             'hide': 0,
             'label': 'History duration',
             'name': 'HistoryDuration',
             'options': [
-                {'selected': False, 'text': '30d', 'value': '30d'},
-                {'selected': False, 'text': '90d', 'value': '90d'},
-                {'selected': True, 'text': '365d', 'value': '365d'},
-                {'selected': False, 'text': '2y', 'value': '2y'},
-                {'selected': False, 'text': '5y', 'value': '5y'},
+                {'selected': False, 'text': '3d', 'value': '3d'},
+                {'selected': True, 'text': '7d', 'value': '7d'},
             ],
-            'query': '30d,90d,365d,2y,5y',
+            'query': '3d,7d',
             'refresh': 2,
             'skipUrlSync': False,
             'type': 'interval',
@@ -729,6 +727,8 @@ def tariff_variable(name: str, energy_type: str,
         FROM "${{tariffs_measurement}}"
         WHERE "energy_type" = '{energy_type}'
           AND "direction" = '{direction}'
+          AND time >= now() - INTERVAL '24 hours'
+        ORDER BY "display_value"
     ''')
     return {
         'current': {},
@@ -770,6 +770,10 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                 'type': 'dashboard',
             }],
         },
+        'description': (
+            'Core-safe live view. Raw-data ranges are bounded because '
+            'InfluxDB 3 Core does not compact Parquet files.'
+        ),
         'editable': True,
         'fiscalYearStartMonth': 0,
         'graphTooltip': 1,
@@ -786,7 +790,7 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                 '5m', '15m', '30m', '1h', '2h', '1d',
             ],
             'time_options': [
-                '24h', '2d', '7d', '30d', '90d', '1y', '5y',
+                '24h', '2d', '3d', '7d',
             ],
         },
         'timezone': 'browser',
@@ -876,7 +880,7 @@ def build_overview_dashboard() -> dict:
         'octo2influx — Overview',
         'octo2influx-overview',
         panels,
-        'now-30d',
+        'now-3d',
     )
 
 
@@ -978,7 +982,7 @@ def build_historical_dashboard() -> dict:
         'octo2influx — Historical Analysis',
         'octo2influx-history',
         panels,
-        'now-5y',
+        'now-7d',
         include_history=True,
     )
 

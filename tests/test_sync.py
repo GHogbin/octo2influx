@@ -20,10 +20,10 @@ def usage(meter_point='mpan', meter_serial='serial'):
     )
 
 
-def tariff():
+def tariff(direction='import'):
     return TariffConfig(
         energy_type='electricity',
-        direction='import',
+        direction=direction,
         product_code='TEST',
         tariff_code='E-1R-TEST-C',
         full_name='Test',
@@ -100,6 +100,14 @@ class MultiPageMissingRateClient(FakeOctopusClient):
                 '2024-01-03T00:30:00Z',
             ),
         ], 2, 2)
+
+
+class EmptyExportRateClient(FakeOctopusClient):
+    def rate_pages(self, tariff_item, price_type, from_iso, to_iso):
+        if tariff_item.direction == 'export':
+            return
+        yield from super().rate_pages(
+            tariff_item, price_type, from_iso, to_iso)
 
 
 def written_lines(client):
@@ -182,6 +190,36 @@ def test_failed_usage_stream_does_not_block_other_meters(
     assert any('meter_point=working' in line for line in lines)
     assert any(
         line.startswith('octopus-sync-status,status=failed')
+        for line in lines
+    )
+
+
+def test_empty_tariff_window_without_related_usage_advances_checkpoint(
+        load_example_config, monkeypatch):
+    monkeypatch.setattr(
+        octo2influx, 'list_measurements', lambda _client: set())
+    monkeypatch.setattr(
+        octo2influx,
+        'stored_watermark',
+        lambda _client, _measurements, _stream_id: None,
+    )
+    client = Mock()
+
+    with freeze_time('2024-01-02T12:00:00Z'):
+        octo2influx.sync_data(
+            client,
+            EmptyExportRateClient(),
+            [usage()],
+            [tariff(direction='export')],
+        )
+
+    lines = written_lines(client)
+    assert any(
+        'stream_type=tariff' in line and 'rows_written=0i' in line
+        for line in lines
+    )
+    assert any(
+        line.startswith('octopus-sync-status,status=success')
         for line in lines
     )
 
