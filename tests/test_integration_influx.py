@@ -75,6 +75,9 @@ def render_dashboard_query(query):
         '${usage_measurement}': 'octopus-usage',
         '${tariffs_measurement}': 'octopus-tariffs',
         '${cost_measurement}': 'octopus-costs',
+        '${dispatch_measurement}': 'octopus-dispatches',
+        '${dispatch_account}': 'dashboard-account',
+        '${cost_model}': 'dispatch-aware-v1',
         '${status_measurement}': 'octopus-sync-status',
         '${electricity_import_tariff}': 'E-1R-DASH-IMPORT-C',
         '${electricity_export_tariff}': 'E-1R-DASH-EXPORT-C',
@@ -182,6 +185,7 @@ def dashboard_fixture_points():
     cost_points = [
         Point('octopus-costs')
         .tag('cost_type', 'usage')
+        .tag('cost_model', 'dispatch-aware-v1')
         .tag('energy_type', 'electricity')
         .tag('direction', 'import')
         .tag('meter_point', 'dashboard-import')
@@ -192,6 +196,7 @@ def dashboard_fixture_points():
         .time(jan_1_midpoint),
         Point('octopus-costs')
         .tag('cost_type', 'standing')
+        .tag('cost_model', 'dispatch-aware-v1')
         .tag('energy_type', 'electricity')
         .tag('direction', 'import')
         .tag('meter_point', 'dashboard-import')
@@ -201,6 +206,7 @@ def dashboard_fixture_points():
         .time(jan_1),
         Point('octopus-costs')
         .tag('cost_type', 'usage')
+        .tag('cost_model', 'dispatch-aware-v1')
         .tag('energy_type', 'electricity')
         .tag('direction', 'export')
         .tag('meter_point', 'dashboard-export')
@@ -211,6 +217,7 @@ def dashboard_fixture_points():
         .time(jan_1_midpoint),
         Point('octopus-costs')
         .tag('cost_type', 'standing')
+        .tag('cost_model', 'dispatch-aware-v1')
         .tag('energy_type', 'electricity')
         .tag('direction', 'export')
         .tag('meter_point', 'dashboard-export')
@@ -220,6 +227,7 @@ def dashboard_fixture_points():
         .time(jan_1),
         Point('octopus-costs')
         .tag('cost_type', 'usage')
+        .tag('cost_model', 'dispatch-aware-v1')
         .tag('energy_type', 'gas')
         .tag('direction', 'import')
         .tag('meter_point', 'dashboard-gas')
@@ -230,6 +238,7 @@ def dashboard_fixture_points():
         .time(jan_1_midpoint),
         Point('octopus-costs')
         .tag('cost_type', 'standing')
+        .tag('cost_model', 'dispatch-aware-v1')
         .tag('energy_type', 'gas')
         .tag('direction', 'import')
         .tag('meter_point', 'dashboard-gas')
@@ -247,7 +256,35 @@ def dashboard_fixture_points():
         .field('duration_seconds', 1.2)
         .time(jan_2)
     )
-    return [*usage_points, *tariff_points, *cost_points, status_point]
+    dispatch_point = (
+        Point('octopus-dispatches')
+        .tag('dispatch_type', 'completed')
+        .tag('dispatch_id', 'dashboard-dispatch')
+        .tag('account_id', 'dashboard-account')
+        .field('end', '2024-01-01T01:00:00+00:00')
+        .field('duration_minutes', 30.0)
+        .field('source', 'smart-charge')
+        .field('location', 'AT_HOME')
+        .field('pricing_eligible', True)
+        .time(jan_1_midpoint)
+    )
+    dispatch_poll = (
+        Point('octopus-dispatches')
+        .tag('dispatch_type', 'poll')
+        .tag('dispatch_id', 'latest-poll')
+        .tag('account_id', 'dashboard-account')
+        .field('records_seen', 1)
+        .time(jan_2)
+    )
+    status_point.field('cost_model', 'dispatch-aware-v1')
+    return [
+        *usage_points,
+        *tariff_points,
+        *cost_points,
+        dispatch_point,
+        dispatch_poll,
+        status_point,
+    ]
 
 
 def test_full_sync_is_idempotent_against_influxdb3(

@@ -2,11 +2,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import logging
-from typing import Any
+import random
+import time
+from typing import Any, Callable
 from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
+from octo2influx_core.dispatches import CompletedDispatch
 from octo2influx_core.models import (
     RATE_TYPE_UNITS,
     TariffConfig,
@@ -187,6 +190,217 @@ class OctopusClient:
             self._url(f'products/{product}/'),
             authenticated=False,
         )
+
+
+class OctopusGraphQLClient:
+    """Authenticated client for Kraken account and dispatch queries."""
+
+    TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
+    TRANSIENT_GRAPHQL_CODES = frozenset({
+        'KT-CT-1199',
+        'KT-CT-4341',
+    })
+
+    def __init__(
+            self,
+            session: requests.Session,
+            api_key: str,
+            timeout_seconds: int,
+            url: str = 'https://api.octopus.energy/v1/graphql/',
+            max_retries: int = 4,
+            sleep_fn: Callable[[float], None] = time.sleep,
+    ):
+        self.session = session
+        self.api_key = api_key
+        self.timeout_seconds = timeout_seconds
+        self.url = url
+        self.max_retries = max_retries
+        self.sleep_fn = sleep_fn
+
+    @staticmethod
+    def _graphql_error_is_transient(error: Any) -> bool:
+        if not isinstance(error, dict):
+            return False
+        extensions = error.get('extensions')
+        code = None
+        if isinstance(extensions, dict):
+            code = (
+                extensions.get('errorCode')
+                or extensions.get('code')
+            )
+        message = str(error.get('message') or '').lower()
+        return (
+            code in OctopusGraphQLClient.TRANSIENT_GRAPHQL_CODES
+            or 'rate limit' in message
+            or 'temporarily unavailable' in message
+        )
+
+    def _retry_delay(self, attempt: int, response=None) -> float:
+        headers = getattr(response, 'headers', None)
+        retry_after = (
+            headers.get('Retry-After')
+            if hasattr(headers, 'get') else None
+        )
+        if retry_after is not None:
+            try:
+                return max(0.0, float(retry_after))
+            except (TypeError, ValueError):
+                pass
+        return min(2 ** attempt, 30) + random.uniform(0.0, 0.25)
+
+    def _request(
+            self,
+            query: str,
+            variables: dict[str, Any],
+            token: str | None = None,
+    ) -> dict[str, Any]:
+        headers = {'Content-Type': 'application/json'}
+        if token is not None:
+            headers['Authorization'] = token
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.session.post(
+                    self.url,
+                    json={'query': query, 'variables': variables},
+                    headers=headers,
+                    timeout=self.timeout_seconds,
+                )
+            except requests.RequestException:
+                if attempt >= self.max_retries:
+                    raise
+                self.sleep_fn(self._retry_delay(attempt))
+                continue
+
+            if (
+                    response.status_code in self.TRANSIENT_HTTP_STATUSES
+                    and attempt < self.max_retries):
+                self.sleep_fn(self._retry_delay(attempt, response))
+                continue
+
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError('Octopus GraphQL response is not an object.')
+            errors = payload.get('errors')
+            if errors:
+                if (
+                        isinstance(errors, list)
+                        and any(
+                            self._graphql_error_is_transient(error)
+                            for error in errors
+                        )
+                        and attempt < self.max_retries):
+                    self.sleep_fn(self._retry_delay(attempt, response))
+                    continue
+                messages = [
+                    str(error.get('message') or error)
+                    if isinstance(error, dict) else str(error)
+                    for error in errors
+                ]
+                raise ValueError(
+                    'Octopus GraphQL error: ' + '; '.join(messages))
+            data = payload.get('data')
+            if not isinstance(data, dict):
+                raise ValueError(
+                    'Octopus GraphQL response has no data object.')
+            return data
+        raise RuntimeError('Octopus GraphQL retry loop exhausted.')
+
+    def obtain_token(self) -> str:
+        data = self._request(
+            '''
+            mutation ObtainToken($apiKey: String!) {
+              obtainKrakenToken(input: { APIKey: $apiKey }) {
+                token
+              }
+            }
+            ''',
+            {'apiKey': self.api_key},
+        )
+        token_data = data.get('obtainKrakenToken')
+        token = (
+            token_data.get('token')
+            if isinstance(token_data, dict) else None
+        )
+        if not isinstance(token, str) or not token:
+            raise ValueError('Octopus GraphQL token response has no token.')
+        return token
+
+    def account_numbers(self, token: str) -> list[str]:
+        data = self._request(
+            '''
+            query ViewerAccounts {
+              viewer {
+                accounts {
+                  number
+                }
+              }
+            }
+            ''',
+            {},
+            token,
+        )
+        viewer = data.get('viewer')
+        accounts = viewer.get('accounts') if isinstance(viewer, dict) else None
+        if not isinstance(accounts, list):
+            raise ValueError(
+                'Octopus GraphQL viewer response has no accounts list.')
+        numbers = []
+        for account in accounts:
+            number = (
+                account.get('number')
+                if isinstance(account, dict) else None
+            )
+            if isinstance(number, str) and number:
+                numbers.append(number)
+        return list(dict.fromkeys(numbers))
+
+    def completed_dispatches(
+            self,
+            token: str,
+            account_number: str,
+    ) -> list[CompletedDispatch]:
+        data = self._request(
+            '''
+            query CompletedDispatches($accountNumber: String!) {
+              completedDispatches(accountNumber: $accountNumber) {
+                start
+                end
+                delta
+                meta {
+                  source
+                  location
+                }
+              }
+            }
+            ''',
+            {'accountNumber': account_number},
+            token,
+        )
+        values = data.get('completedDispatches')
+        if values is None:
+            return []
+        if not isinstance(values, list):
+            raise ValueError(
+                'Octopus completed dispatch response is not a list.')
+        return [
+            CompletedDispatch.from_graphql(value)
+            for value in values
+        ]
+
+    def resolve_account_number(
+            self,
+            token: str,
+            configured_account_number: str | None = None,
+    ) -> str:
+        if configured_account_number:
+            return configured_account_number
+        numbers = self.account_numbers(token)
+        if len(numbers) != 1:
+            raise ValueError(
+                'Completed dispatch ingestion requires account_number when '
+                f'the API key exposes {len(numbers)} accounts.')
+        return numbers[0]
 
 
 def product_code_from_tariff_code(tariff_code: str) -> str:

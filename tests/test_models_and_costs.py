@@ -1,7 +1,11 @@
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import octo2influx
+from octo2influx_core.dispatches import CompletedDispatch, DispatchBook
 from octo2influx_core.costs import (
+    DISPATCH_AWARE_COST_MODEL,
+    TARIFF_ONLY_COST_MODEL,
+    active_cost_model,
     build_cost_plan,
     compatible_tariffs,
     standing_charge_points,
@@ -22,7 +26,7 @@ from octo2influx_core.models import (
 
 
 def tariff(tariff_code='E-1R-TEST-C', rate_types=(),
-           materialize_costs=True):
+           materialize_costs=True, use_completed_dispatches=False):
     return TariffConfig(
         energy_type='electricity',
         direction='import',
@@ -33,6 +37,7 @@ def tariff(tariff_code='E-1R-TEST-C', rate_types=(),
         description='',
         rate_types=rate_types,
         materialize_costs=materialize_costs,
+        use_completed_dispatches=use_completed_dispatches,
     )
 
 
@@ -54,6 +59,26 @@ def test_compatible_tariffs_excludes_disabled_cost_comparisons():
     )
 
     assert compatible_tariffs(usage(), [disabled, enabled]) == [enabled]
+
+
+def test_active_cost_model_fingerprints_dispatch_enabled_tariffs():
+    first = tariff(
+        'E-1R-FIRST-C',
+        use_completed_dispatches=True,
+    )
+    second = tariff('E-1R-SECOND-C')
+
+    model = active_cost_model([second, first])
+
+    assert model.startswith(f'{DISPATCH_AWARE_COST_MODEL}-')
+    assert active_cost_model([first, second]) == model
+    assert active_cost_model([second]) == TARIFF_ONLY_COST_MODEL
+    assert active_cost_model([
+        tariff(
+            'E-1R-SECOND-C',
+            use_completed_dispatches=True,
+        ),
+    ]) != model
 
 
 def rate_row(value, valid_from='2024-01-01T00:00:00Z',
@@ -157,6 +182,57 @@ def test_rate_book_does_not_fallback_to_wrong_payment_method():
     assert actual is None
 
 
+def test_cheapest_rate_near_uses_off_peak_rate_from_adjacent_window():
+    book = RateBook()
+    book.add_rows(STANDARD_UNIT_RATE, [
+        rate_row(
+            8,
+            valid_from='2024-01-01T00:00:00Z',
+            valid_to='2024-01-01T05:30:00Z',
+        ),
+        rate_row(
+            34,
+            valid_from='2024-01-01T05:30:00Z',
+            valid_to='2024-01-01T23:30:00Z',
+        ),
+        rate_row(
+            8,
+            valid_from='2024-01-01T23:30:00Z',
+            valid_to='2024-01-02T05:30:00Z',
+        ),
+    ])
+
+    actual = book.cheapest_rate_near(
+        STANDARD_UNIT_RATE,
+        datetime(2024, 1, 1, 12, tzinfo=timezone.utc),
+    )
+
+    assert actual.value_inc_vat == 8
+
+
+def test_cheapest_rate_near_ignores_stale_historical_rate():
+    book = RateBook()
+    book.add_rows(STANDARD_UNIT_RATE, [
+        rate_row(
+            5,
+            valid_from='2023-01-01T00:00:00Z',
+            valid_to='2023-01-02T00:00:00Z',
+        ),
+        rate_row(
+            34,
+            valid_from='2024-01-01T00:00:00Z',
+        ),
+    ])
+
+    actual = book.cheapest_rate_near(
+        STANDARD_UNIT_RATE,
+        datetime(2024, 1, 1, 12, tzinfo=timezone.utc),
+        maximum_distance=timedelta(days=1),
+    )
+
+    assert actual.value_inc_vat == 34
+
+
 def test_historical_tariff_windows_are_merged():
     first = TariffConfig(
         **{
@@ -235,6 +311,62 @@ def test_usage_cost_point_materializes_tariff_comparison():
     assert reason is None
     assert 'value_gbp=0.5' in point.to_line_protocol()
     assert 'billing_consumption_kwh=2' in point.to_line_protocol()
+    assert (
+        f'cost_model={TARIFF_ONLY_COST_MODEL}'
+        in point.to_line_protocol()
+    )
+    assert 'rate_source="tariff"' in point.to_line_protocol()
+    assert 'completed_dispatch=false' in point.to_line_protocol()
+
+
+def test_usage_cost_applies_off_peak_rate_to_completed_smart_dispatch():
+    book = RateBook()
+    book.add_rows(STANDARD_UNIT_RATE, [
+        rate_row(
+            8,
+            valid_from='2024-01-01T00:00:00Z',
+            valid_to='2024-01-01T05:30:00Z',
+        ),
+        rate_row(
+            34,
+            valid_from='2024-01-01T05:30:00Z',
+            valid_to='2024-01-01T23:30:00Z',
+        ),
+    ])
+    dispatch_book = DispatchBook.from_dispatches([
+        CompletedDispatch(
+            start=datetime(2024, 1, 1, 12, tzinfo=timezone.utc),
+            end=datetime(2024, 1, 1, 12, 30, tzinfo=timezone.utc),
+            source='smart-charge',
+        ),
+    ])
+    plan, reason = build_cost_plan(
+        usage(),
+        tariff(use_completed_dispatches=True),
+        book,
+        schedules={},
+        gas_m3_to_kwh_factor=None,
+        dispatch_book=dispatch_book,
+        cost_model=DISPATCH_AWARE_COST_MODEL,
+    )
+
+    point = usage_cost_point(
+        'octopus-costs',
+        {
+            'consumption': 2,
+            'interval_start': '2024-01-01T12:00:00Z',
+            'interval_end': '2024-01-01T12:30:00Z',
+        },
+        plan,
+    )
+    line = point.to_line_protocol()
+
+    assert reason is None
+    assert 'value_gbp=0.16' in line
+    assert 'unit_rate_pence=8' in line
+    assert f'cost_model={DISPATCH_AWARE_COST_MODEL}' in line
+    assert 'rate_source="completed-dispatch"' in line
+    assert 'completed_dispatch=true' in line
 
 
 def test_gas_cost_requires_explicit_conversion_factor():

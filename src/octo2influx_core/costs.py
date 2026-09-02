@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+import hashlib
 from zoneinfo import ZoneInfo
 
 import dateutil.parser
 from influxdb_client_3 import Point
 
+from octo2influx_core.dispatches import DispatchBook
 from octo2influx_core.models import (
     STANDING_CHARGE,
     RateBook,
@@ -13,6 +15,23 @@ from octo2influx_core.models import (
     UsageConfig,
     infer_rate_types,
 )
+
+TARIFF_ONLY_COST_MODEL = 'tariff-only-v1'
+DISPATCH_AWARE_COST_MODEL = 'dispatch-aware-v1'
+
+
+def active_cost_model(tariffs: list[TariffConfig]) -> str:
+    enabled = sorted(
+        '\x1f'.join(tariff.key)
+        for tariff in tariffs
+        if tariff.use_completed_dispatches
+    )
+    if not enabled:
+        return TARIFF_ONLY_COST_MODEL
+    digest = hashlib.sha256(
+        '\x1e'.join(enabled).encode('utf-8')
+    ).hexdigest()[:12]
+    return f'{DISPATCH_AWARE_COST_MODEL}-{digest}'
 
 
 @dataclass(frozen=True)
@@ -23,6 +42,8 @@ class CostPlan:
     unit_price_types: tuple[str, ...]
     schedule: TariffSchedule | None
     gas_m3_to_kwh_factor: float | None
+    dispatch_book: DispatchBook
+    cost_model: str
 
     def price_type_at(self, timestamp: datetime) -> str:
         if self.schedule is not None:
@@ -57,6 +78,8 @@ def build_cost_plan(
         rate_book: RateBook,
         schedules: dict[str, TariffSchedule],
         gas_m3_to_kwh_factor: float | None,
+        dispatch_book: DispatchBook | None = None,
+        cost_model: str = TARIFF_ONLY_COST_MODEL,
 ) -> tuple[CostPlan | None, str | None]:
     unit_price_types = tuple(
         price_type for price_type in infer_rate_types(tariff)
@@ -101,6 +124,8 @@ def build_cost_plan(
         unit_price_types=unit_price_types,
         schedule=schedule,
         gas_m3_to_kwh_factor=gas_m3_to_kwh_factor,
+        dispatch_book=dispatch_book or DispatchBook(),
+        cost_model=cost_model,
     ), None
 
 
@@ -123,6 +148,26 @@ def usage_cost_point(
     if rate is None:
         return None
 
+    rate_source = 'tariff'
+    completed_dispatch = False
+    if (
+            plan.tariff.use_completed_dispatches
+            and plan.dispatch_book.qualifies_for_cheap_rate(
+                interval_start, interval_end)):
+        cheapest_rate = plan.rate_book.cheapest_rate_near(
+            price_type,
+            interval_start,
+            plan.tariff.payment_method,
+        )
+        if cheapest_rate is None:
+            raise ValueError(
+                f'No off-peak rate found near completed dispatch at '
+                f'{interval_start.isoformat()}.')
+        if cheapest_rate.value_inc_vat < rate.value_inc_vat:
+            rate = cheapest_rate
+            rate_source = 'completed-dispatch'
+            completed_dispatch = True
+
     consumption = float(row['consumption'])
     billing_kwh = plan.billing_consumption_kwh(consumption)
     if billing_kwh is None:
@@ -138,11 +183,14 @@ def usage_cost_point(
         .tag('meter_serial', plan.usage.meter_serial)
         .tag('tariff_code', plan.tariff.tariff_code)
         .tag('price_type', price_type)
+        .tag('cost_model', plan.cost_model)
         .field('value_gbp', billing_kwh * rate.value_inc_vat / 100.0)
         .field('consumption', consumption)
         .field('consumption_unit', plan.usage.unit)
         .field('billing_consumption_kwh', billing_kwh)
         .field('unit_rate_pence', rate.value_inc_vat)
+        .field('rate_source', rate_source)
+        .field('completed_dispatch', completed_dispatch)
         .time(midpoint)
     )
 
@@ -162,6 +210,7 @@ def standing_charge_points(
         from_dt: datetime,
         to_dt: datetime,
         timezone_name: str,
+        cost_model: str = TARIFF_ONLY_COST_MODEL,
 ) -> list[Point]:
     timezone = ZoneInfo(timezone_name)
     start_date = from_dt.astimezone(timezone).date()
@@ -186,6 +235,7 @@ def standing_charge_points(
         points.append(
             Point(measurement)
             .tag('cost_type', 'standing')
+            .tag('cost_model', cost_model)
             .tag('energy_type', usage.energy_type)
             .tag('direction', usage.direction)
             .tag('meter_point', usage.meter_point)

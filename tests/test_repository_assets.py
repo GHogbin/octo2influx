@@ -109,12 +109,33 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
     ]
     assert cost_queries
     assert any('"cost_type"' in query for query in cost_queries)
+    assert all(
+        '"cost_model" = \'${cost_model}\'' in query
+        for query in cost_queries
+    )
 
     variables = {
         item['name']: item for item in dashboard['templating']['list']
     }
     assert variables['datasource']['type'] == 'datasource'
     assert variables['cost_measurement']['query'] == 'octopus-costs'
+    assert variables['dispatch_measurement']['query'] == (
+        'octopus-dispatches'
+    )
+    assert variables['cost_model']['current']['value'] == (
+        'dispatch-aware-v1'
+    )
+    assert variables['cost_model']['hide'] == 2
+    assert variables['cost_model']['type'] == 'query'
+    assert 'ORDER BY time DESC' in variables['cost_model']['query']
+    assert 'FROM "${status_measurement}"' in (
+        variables['cost_model']['query']
+    )
+    assert '"status" = \'success\'' in variables['cost_model']['query']
+    assert variables['dispatch_account']['hide'] == 2
+    assert 'FROM "${dispatch_measurement}"' in (
+        variables['dispatch_account']['query']
+    )
     assert variables['status_measurement']['query'] == 'octopus-sync-status'
     assert variables['chart_interval']['query'] == '30 minutes,1 hour'
     assert variables['chart_interval']['current']['value'] == '30 minutes'
@@ -311,6 +332,7 @@ def test_historical_dashboard_has_analysis_views():
         'Grid Import and Export by Interval',
         'Gas Usage by Interval (${gas_unit})',
         'Gas Usage Cost by Interval',
+        'Completed Dispatches',
     }.issubset(titles)
 
     interval_titles = {
@@ -327,3 +349,12 @@ def test_historical_dashboard_has_analysis_views():
             continue
         for target in panel['targets']:
             assert "INTERVAL '${chart_interval}'" in target['rawSql']
+    dispatch_panel = next(
+        panel for panel in dashboard['panels']
+        if panel['title'] == 'Completed Dispatches'
+    )
+    dispatch_query = dispatch_panel['targets'][0]['rawSql']
+    assert 'FROM "${dispatch_measurement}"' in dispatch_query
+    assert '"dispatch_type" = \'completed\'' in dispatch_query
+    assert '"account_id" = \'${dispatch_account}\'' in dispatch_query
+    assert '"pricing_eligible" AS "Cheap-rate eligible"' in dispatch_query

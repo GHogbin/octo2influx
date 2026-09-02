@@ -105,6 +105,7 @@ def sync_status_point(
         failed_streams: int,
         duration_seconds: float,
         error_summary: str = '',
+        cost_model: str | None = None,
 ) -> Point:
     status = 'success' if failed_streams == 0 else 'failed'
     point = (
@@ -116,6 +117,8 @@ def sync_status_point(
     )
     if error_summary:
         point.field('error_summary', error_summary[:4096])
+    if cost_model is not None:
+        point.field('cost_model', cost_model)
     return point.time(datetime.now(timezone.utc))
 
 

@@ -129,7 +129,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Import usage cost\",\n  SUM(CASE\n    WHEN \"direction\" = 'export' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Export usage revenue\",\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    WHEN \"direction\" = 'export' THEN -\"value_gbp\"\n    ELSE 0.0\n  END) AS \"Net usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND (\n    (\"direction\" = 'import'\n      AND \"tariff_code\" = '${electricity_import_tariff}')\n    OR\n    (\"direction\" = 'export'\n      AND \"tariff_code\" = '${electricity_export_tariff}')\n  )\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Import usage cost\",\n  SUM(CASE\n    WHEN \"direction\" = 'export' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Export usage revenue\",\n  SUM(CASE\n    WHEN \"direction\" = 'import' THEN \"value_gbp\"\n    WHEN \"direction\" = 'export' THEN -\"value_gbp\"\n    ELSE 0.0\n  END) AS \"Net usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'electricity'\n  AND \"cost_model\" = '${cost_model}'\n  AND (\n    (\"direction\" = 'import'\n      AND \"tariff_code\" = '${electricity_import_tariff}')\n    OR\n    (\"direction\" = 'export'\n      AND \"tariff_code\" = '${electricity_export_tariff}')\n  )\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -673,7 +673,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  \"energy_type\" AS \"Energy\",\n  \"direction\" AS \"Direction\",\n  \"tariff_code\" AS \"Tariff\",\n  SUM(CASE\n    WHEN \"cost_type\" = 'usage' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Usage value\",\n  SUM(CASE\n    WHEN \"cost_type\" = 'standing' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Standing charge\",\n  SUM(\"value_gbp\") AS \"Gross value\"\nFROM \"${cost_measurement}\"\nWHERE $__timeFilter(time)\nGROUP BY \"energy_type\", \"direction\", \"tariff_code\"\nORDER BY \"energy_type\", \"direction\", \"Gross value\"",
+          "rawSql": "SELECT\n  \"energy_type\" AS \"Energy\",\n  \"direction\" AS \"Direction\",\n  \"tariff_code\" AS \"Tariff\",\n  SUM(CASE\n    WHEN \"cost_type\" = 'usage' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Usage value\",\n  SUM(CASE\n    WHEN \"cost_type\" = 'standing' THEN \"value_gbp\"\n    ELSE 0.0\n  END) AS \"Standing charge\",\n  SUM(\"value_gbp\") AS \"Gross value\"\nFROM \"${cost_measurement}\"\nWHERE \"cost_model\" = '${cost_model}'\n  AND $__timeFilter(time)\nGROUP BY \"energy_type\", \"direction\", \"tariff_code\"\nORDER BY \"energy_type\", \"direction\", \"Gross value\"",
           "refId": "A"
         }
       ],
@@ -785,6 +785,83 @@
         "x": 0,
         "y": 45
       },
+      "id": 205,
+      "panels": [],
+      "title": "Completed Smart-Charge Dispatches",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "enablePagination": false,
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "13.0.7",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  time AS \"Start\",\n  \"end\" AS \"End\",\n  \"duration_minutes\" AS \"Minutes\",\n  \"source\" AS \"Source\",\n  \"location\" AS \"Location\",\n  \"pricing_eligible\" AS \"Cheap-rate eligible\"\nFROM \"${dispatch_measurement}\"\nWHERE \"dispatch_type\" = 'completed'\n  AND \"account_id\" = '${dispatch_account}'\n  AND $__timeFilter(time)\nORDER BY time DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Completed Dispatches",
+      "type": "table",
+      "timeFrom": "$HistoryDuration"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
       "id": 203,
       "panels": [],
       "title": "Gas History",
@@ -848,7 +925,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 46
+        "y": 55
       },
       "id": 9,
       "options": {
@@ -944,7 +1021,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 46
+        "y": 55
       },
       "id": 10,
       "options": {
@@ -974,7 +1051,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(\"value_gbp\") AS \"Gas usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_bin(INTERVAL '${chart_interval}', time) AS time,\n  SUM(\"value_gbp\") AS \"Gas usage cost\"\nFROM \"${cost_measurement}\"\nWHERE \"energy_type\" = 'gas'\n  AND \"cost_model\" = '${cost_model}'\n  AND \"direction\" = 'import'\n  AND \"tariff_code\" = '${gas_tariff}'\n  AND \"cost_type\" = 'usage'\n  AND $__timeFilter(time)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -988,7 +1065,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 54
+        "y": 63
       },
       "id": 204,
       "panels": [],
@@ -1025,7 +1102,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 64
       },
       "id": 11,
       "options": {
@@ -1194,6 +1271,25 @@
       {
         "current": {
           "selected": true,
+          "text": "octopus-dispatches",
+          "value": "octopus-dispatches"
+        },
+        "hide": 0,
+        "name": "dispatch_measurement",
+        "options": [
+          {
+            "selected": true,
+            "text": "octopus-dispatches",
+            "value": "octopus-dispatches"
+          }
+        ],
+        "query": "octopus-dispatches",
+        "skipUrlSync": false,
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
           "text": "octopus-sync-status",
           "value": "octopus-sync-status"
         },
@@ -1209,6 +1305,50 @@
         "query": "octopus-sync-status",
         "skipUrlSync": false,
         "type": "textbox"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "dispatch-aware-v1",
+          "value": "dispatch-aware-v1"
+        },
+        "datasource": {
+          "type": "influxdb",
+          "uid": "${datasource}"
+        },
+        "definition": "SELECT \"cost_model\"\nFROM \"${status_measurement}\"\nWHERE \"status\" = 'success'\n  AND \"cost_model\" IS NOT NULL\n  AND time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "name": "cost_model",
+        "options": [],
+        "query": "SELECT \"cost_model\"\nFROM \"${status_measurement}\"\nWHERE \"status\" = 'success'\n  AND \"cost_model\" IS NOT NULL\n  AND time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
+        "rawSql": "SELECT \"cost_model\"\nFROM \"${status_measurement}\"\nWHERE \"status\" = 'success'\n  AND \"cost_model\" IS NOT NULL\n  AND time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "influxdb",
+          "uid": "${datasource}"
+        },
+        "definition": "SELECT \"account_id\"\nFROM \"${dispatch_measurement}\"\nWHERE \"dispatch_type\" IN ('poll', 'completed')\n  AND time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "name": "dispatch_account",
+        "options": [],
+        "query": "SELECT \"account_id\"\nFROM \"${dispatch_measurement}\"\nWHERE \"dispatch_type\" IN ('poll', 'completed')\n  AND time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
+        "rawSql": "SELECT \"account_id\"\nFROM \"${dispatch_measurement}\"\nWHERE \"dispatch_type\" IN ('poll', 'completed')\n  AND time >= now() - INTERVAL '7 days'\nORDER BY time DESC\nLIMIT 1",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
       },
       {
         "current": {

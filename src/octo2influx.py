@@ -18,10 +18,20 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from octo2influx_core.costs import (
+    active_cost_model,
     build_cost_plan,
     compatible_tariffs,
     standing_charge_points,
     usage_cost_point,
+)
+from octo2influx_core.dispatches import (
+    CompletedDispatch,
+    DispatchBook,
+    completed_dispatch_point,
+    dispatch_poll_point,
+    dispatch_measurement_metadata_point,
+    opaque_account_identifier,
+    query_completed_dispatches,
 )
 from octo2influx_core.influx import (
     list_measurements,
@@ -43,6 +53,7 @@ from octo2influx_core.models import (
 )
 from octo2influx_core.octopus import (
     OctopusClient,
+    OctopusGraphQLClient,
     discover_account_configuration,
 )
 
@@ -81,6 +92,7 @@ confuse_tariff_template = {
     'rate_types': confuse.Optional(confuse.Sequence(str), default=[]),
     'payment_method': confuse.Optional(str, default=None),
     'materialize_costs': confuse.Optional(bool, default=True),
+    'use_completed_dispatches': confuse.Optional(bool, default=False),
     'agreement_from': confuse.Optional(str, default=None),
     'agreement_to': confuse.Optional(str, default=None),
 }
@@ -151,6 +163,7 @@ params = {
     'influx_api_token': Parameter(_secret_unsafe_on_cmdline, str, '(**Config file or environment only**) The API Token to connect to the InfluxDB 3 instance.'),
     'influx_write_batch_size': Parameter(int, int, 'Maximum points written in each InfluxDB request.', default=5000, validator=lambda x: x > 0),
     'influx_cost_measurement': Parameter(str, str, 'InfluxDB 3 measurement containing materialized tariff costs.', default='octopus-costs'),
+    'influx_dispatch_measurement': Parameter(str, str, 'InfluxDB 3 measurement containing completed smart-charge dispatches.', default='octopus-dispatches'),
     'influx_watermark_measurement': Parameter(str, str, 'InfluxDB 3 measurement containing per-stream checkpoints.', default='octopus-watermarks'),
     'influx_status_measurement': Parameter(str, str, 'InfluxDB 3 measurement containing synchronization status.', default='octopus-sync-status'),
 }
@@ -594,6 +607,7 @@ def explicit_tariff_configs() -> list[TariffConfig]:
             rate_types=tuple(item.rate_types),
             payment_method=item.payment_method,
             materialize_costs=item.materialize_costs,
+            use_completed_dispatches=item.use_completed_dispatches,
             agreement_from=parse_optional_datetime(item.agreement_from),
             agreement_to=parse_optional_datetime(item.agreement_to),
         ))
@@ -730,6 +744,14 @@ def validate_stream_configuration(
             parser.error(
                 f'Tariff {tariff.tariff_code} does not match '
                 f'energy type {tariff.energy_type}.')
+        if (
+                tariff.use_completed_dispatches
+                and (
+                    tariff.energy_type != 'electricity'
+                    or tariff.direction != 'import')):
+            parser.error(
+                f'Tariff {tariff.tariff_code} enables completed dispatches '
+                'but is not an electricity import tariff.')
         for valid_from, valid_to in tariff.validity_windows:
             if (
                     valid_from is not None
@@ -761,6 +783,7 @@ def validate_configuration(parser: argparse.ArgumentParser) -> None:
         'request_max_pages',
         'influx_write_batch_size',
         'influx_cost_measurement',
+        'influx_dispatch_measurement',
         'influx_watermark_measurement',
         'influx_status_measurement',
         'discover_historical_tariffs',
@@ -833,21 +856,33 @@ def tariff_stream_id(tariff: TariffConfig, price_type: str) -> str:
 def usage_cost_stream_id(
         usage: UsageConfig,
         tariff: TariffConfig,
+        cost_model: str,
 ) -> str:
-    return make_stream_id('cost-usage', *usage.key, *tariff.key)
+    return make_stream_id(
+        'cost-usage',
+        cost_model,
+        *usage.key,
+        *tariff.key,
+    )
 
 
 def standing_cost_stream_id(
         usage: UsageConfig,
         tariff: TariffConfig,
+        cost_model: str,
 ) -> str:
     return make_stream_id(
         'cost-standing',
+        cost_model,
         usage.energy_type,
         usage.direction,
         usage.meter_point,
         *tariff.key,
     )
+
+
+def completed_dispatch_stream_id(account_number: str) -> str:
+    return make_stream_id('completed-dispatches', account_number)
 
 
 def configured_from_datetime() -> datetime | None:
@@ -972,6 +1007,9 @@ def sync_data(
         octopus_client: OctopusClient,
         usage_items: list[UsageConfig],
         tariff_items: list[TariffConfig],
+        dispatch_loader: Callable[
+            [], tuple[str, list[CompletedDispatch]]
+        ] | None = None,
 ) -> None:
     """Synchronize independent streams and report all failures together."""
     started_at = perf_counter()
@@ -990,6 +1028,7 @@ def sync_data(
     usage_measurement = cfg['influx_usage_measurement']
     tariff_measurement = cfg['influx_tariff_measurement']
     cost_measurement = cfg['influx_cost_measurement']
+    dispatch_measurement = cfg['influx_dispatch_measurement']
     batch_size = cfg['influx_write_batch_size']
     schedules = configured_tariff_schedules()
     gas_conversion_factor = optional_config('gas_m3_to_kwh_factor')
@@ -1005,7 +1044,82 @@ def sync_data(
             successful_streams.discard(stream_id)
         logging.error(f'{stream} failed: {error}', exc_info=True)
 
+    dispatch_book = DispatchBook()
+    dispatches_available = True
+    uses_completed_dispatches = any(
+        tariff.use_completed_dispatches
+        for tariff in tariff_items
+    )
+    cost_model = active_cost_model(tariff_items)
+    if dispatch_measurement not in existing_measurements:
+        write_records(
+            client,
+            [dispatch_measurement_metadata_point(
+                dispatch_measurement,
+                uses_completed_dispatches,
+            )],
+            batch_size,
+        )
+        existing_measurements.add(dispatch_measurement)
+    if uses_completed_dispatches:
+        dispatch_stream = None
+        dispatch_account_id = None
+        try:
+            if dispatch_loader is None:
+                raise ValueError(
+                    'Completed dispatch ingestion is enabled but no '
+                    'dispatch loader is configured.')
+            account_number, completed_dispatches = dispatch_loader()
+            dispatch_stream = completed_dispatch_stream_id(account_number)
+            dispatch_account_id = opaque_account_identifier(
+                account_number)
+            dispatch_book = DispatchBook.from_dispatches(
+                completed_dispatches)
+            points = [
+                completed_dispatch_point(
+                    dispatch_measurement,
+                    dispatch,
+                    dispatch_account_id,
+                )
+                for dispatch in dispatch_book.completed
+            ]
+            checkpoint_time = min(
+                datetime.now(timezone.utc),
+                to_dt,
+            )
+            checkpoint = watermark_point(
+                watermark_measurement,
+                dispatch_stream,
+                'completed-dispatches',
+                checkpoint_time,
+                len(points),
+            )
+            write_records(
+                client,
+                [
+                    *points,
+                    dispatch_poll_point(
+                        dispatch_measurement,
+                        dispatch_account_id,
+                        len(points),
+                    ),
+                ],
+                batch_size,
+                checkpoint,
+            )
+            existing_measurements.update(
+                (dispatch_measurement, watermark_measurement))
+            successful_streams.add(dispatch_stream)
+        except STREAM_ERRORS as error:
+            dispatches_available = False
+            remember_failure(
+                'completed smart-charge dispatches',
+                error,
+                dispatch_stream,
+            )
+
     usage_fetch_starts: dict[UsageConfig, datetime] = {}
+    earliest_dispatch_cost_start: datetime | None = None
     standing_starts: dict[
         str, tuple[UsageConfig, TariffConfig, datetime]
     ] = {}
@@ -1015,20 +1129,16 @@ def sync_data(
             client, existing_measurements, usage, configured_from)
         required_starts = [raw_start]
         for tariff in compatible_tariffs(usage, tariff_items):
-            usage_cost_start = cost_stream_start(
-                client,
-                existing_measurements,
-                usage_cost_stream_id(usage, tariff),
-                configured_from,
-            )
             standing_start = cost_stream_start(
                 client,
                 existing_measurements,
-                standing_cost_stream_id(usage, tariff),
+                standing_cost_stream_id(
+                    usage, tariff, cost_model),
                 configured_from,
             )
-            required_starts.extend((usage_cost_start, standing_start))
-            standing_stream = standing_cost_stream_id(usage, tariff)
+            required_starts.append(standing_start)
+            standing_stream = standing_cost_stream_id(
+                usage, tariff, cost_model)
             existing = standing_starts.get(standing_stream)
             if existing is None or standing_start < existing[2]:
                 standing_starts[standing_stream] = (
@@ -1036,7 +1146,57 @@ def sync_data(
                     tariff,
                     standing_start,
                 )
+            if (
+                    tariff.use_completed_dispatches
+                    and not dispatches_available):
+                continue
+            usage_cost_start = cost_stream_start(
+                client,
+                existing_measurements,
+                usage_cost_stream_id(
+                    usage, tariff, cost_model),
+                configured_from,
+            )
+            required_starts.append(usage_cost_start)
+            if tariff.use_completed_dispatches:
+                earliest_dispatch_cost_start = (
+                    usage_cost_start
+                    if earliest_dispatch_cost_start is None
+                    else min(
+                        earliest_dispatch_cost_start,
+                        usage_cost_start,
+                    )
+                )
         usage_fetch_starts[usage] = min(required_starts)
+
+    if (
+            uses_completed_dispatches
+            and dispatches_available
+            and dispatch_account_id is not None
+            and earliest_dispatch_cost_start is not None):
+        try:
+            persisted_dispatches = query_completed_dispatches(
+                client,
+                dispatch_measurement,
+                dispatch_account_id,
+                earliest_dispatch_cost_start - timedelta(days=1),
+                to_dt,
+            )
+            dispatch_book = DispatchBook.from_dispatches([
+                *dispatch_book.completed,
+                *persisted_dispatches,
+            ])
+            logging.info(
+                f'=== Retrieved and retained '
+                f'{len(dispatch_book.completed)} completed smart-charge '
+                'dispatch record(s).')
+        except STREAM_ERRORS as error:
+            dispatches_available = False
+            remember_failure(
+                'retained smart-charge dispatches',
+                error,
+                dispatch_stream,
+            )
 
     rate_books = {
         tariff.key: RateBook() for tariff in tariff_items
@@ -1157,12 +1317,18 @@ def sync_data(
 
         plans = []
         for tariff in compatible_tariffs(usage, tariff_items):
+            if (
+                    tariff.use_completed_dispatches
+                    and not dispatches_available):
+                continue
             plan, reason = build_cost_plan(
                 usage,
                 tariff,
                 rate_books[tariff.key],
                 schedules,
                 gas_conversion_factor,
+                dispatch_book,
+                cost_model,
             )
             if plan is not None:
                 plans.append(plan)
@@ -1213,7 +1379,7 @@ def sync_data(
 
                 for plan in plans:
                     cost_stream = usage_cost_stream_id(
-                        usage, plan.tariff)
+                        usage, plan.tariff, cost_model)
                     if cost_stream in disabled_cost_streams:
                         continue
                     cost_name = (
@@ -1292,6 +1458,7 @@ def sync_data(
                 from_dt,
                 effective_to,
                 cfg['timezone'],
+                cost_model,
             )
             if not points:
                 raise ValueError(
@@ -1320,6 +1487,7 @@ def sync_data(
             f'{failure.stream}: {failure.error}'
             for failure in failures.values()
         ),
+        cost_model,
     )
     write_records(client, [status], batch_size)
 
@@ -1368,12 +1536,52 @@ def main() -> None:
                 host=cfg['influx_url'],
                 token=cfg['influx_api_token'],
                 database=cfg['influx_database']) as client:
-            sync_data(
-                client,
-                octopus_client,
-                usage_items,
-                tariff_items,
+            uses_completed_dispatches = any(
+                tariff.use_completed_dispatches
+                for tariff in tariff_items
             )
+            dispatch_loader = None
+            if uses_completed_dispatches:
+                graphql_session = requests.Session()
+                try:
+                    graphql_client = OctopusGraphQLClient(
+                        graphql_session,
+                        cfg['octopus_api_key'],
+                        cfg['request_timeout_seconds'],
+                        max_retries=cfg['request_max_retries'],
+                    )
+
+                    def load_completed_dispatches():
+                        token = graphql_client.obtain_token()
+                        account_number = (
+                            graphql_client.resolve_account_number(
+                                token,
+                                optional_config('account_number'),
+                            )
+                        )
+                        return (
+                            account_number,
+                            graphql_client.completed_dispatches(
+                                token, account_number),
+                        )
+
+                    dispatch_loader = load_completed_dispatches
+                    sync_data(
+                        client,
+                        octopus_client,
+                        usage_items,
+                        tariff_items,
+                        dispatch_loader,
+                    )
+                finally:
+                    graphql_session.close()
+            else:
+                sync_data(
+                    client,
+                    octopus_client,
+                    usage_items,
+                    tariff_items,
+                )
 
 
 if __name__ == "__main__":

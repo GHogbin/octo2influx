@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
+import requests
 
 from octo2influx_core.models import (
     DAY_UNIT_RATE,
@@ -11,17 +12,22 @@ from octo2influx_core.models import (
 )
 from octo2influx_core.octopus import (
     OctopusClient,
+    OctopusGraphQLClient,
     discover_account_configuration,
     product_code_from_tariff_code,
 )
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200, headers=None):
         self.payload = payload
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
-        return None
+        if self.status_code >= 400:
+            raise requests.HTTPError(
+                f'HTTP {self.status_code}', response=self)
 
     def json(self):
         return self.payload
@@ -216,3 +222,156 @@ def test_product_code_is_derived_from_tariff_code():
     assert product_code_from_tariff_code(
         'E-1R-AGILE-24-10-01-C'
     ) == 'AGILE-24-10-01'
+
+
+def test_graphql_uses_api_key_token_and_raw_authorization_header():
+    session = Mock()
+    session.post.side_effect = [
+        FakeResponse({
+            'data': {
+                'obtainKrakenToken': {'token': 'jwt-token'},
+            },
+        }),
+        FakeResponse({
+            'data': {
+                'completedDispatches': [{
+                    'start': '2026-09-01T12:00:00Z',
+                    'end': '2026-09-01T12:30:00Z',
+                    'delta': '-0.58',
+                    'meta': {
+                        'source': 'smart-charge',
+                        'location': 'AT_HOME',
+                    },
+                }],
+            },
+        }),
+    ]
+    client = OctopusGraphQLClient(
+        session,
+        'api-key',
+        timeout_seconds=12,
+        url='https://api.example.test/v1/graphql/',
+    )
+
+    token = client.obtain_token()
+    dispatches = client.completed_dispatches(token, 'A-TEST')
+
+    assert token == 'jwt-token'
+    assert len(dispatches) == 1
+    first_call = session.post.call_args_list[0]
+    second_call = session.post.call_args_list[1]
+    assert 'Authorization' not in first_call.kwargs['headers']
+    assert first_call.kwargs['json']['variables'] == {'apiKey': 'api-key'}
+    assert second_call.kwargs['headers']['Authorization'] == 'jwt-token'
+    assert second_call.kwargs['json']['variables'] == {
+        'accountNumber': 'A-TEST',
+    }
+    assert second_call.kwargs['timeout'] == 12
+
+
+def test_graphql_discovers_single_account_without_logging_identifier():
+    session = Mock()
+    session.post.return_value = FakeResponse({
+        'data': {
+            'viewer': {
+                'accounts': [
+                    {'number': 'A-TEST'},
+                    {'number': 'A-TEST'},
+                ],
+            },
+        },
+    })
+    client = OctopusGraphQLClient(session, 'api-key', 12)
+
+    assert client.resolve_account_number('token') == 'A-TEST'
+
+
+def test_graphql_requires_configured_account_when_multiple_are_visible():
+    session = Mock()
+    session.post.return_value = FakeResponse({
+        'data': {
+            'viewer': {
+                'accounts': [
+                    {'number': 'A-FIRST'},
+                    {'number': 'A-SECOND'},
+                ],
+            },
+        },
+    })
+    client = OctopusGraphQLClient(session, 'api-key', 12)
+
+    with pytest.raises(ValueError, match='exposes 2 accounts'):
+        client.resolve_account_number('token')
+
+    assert client.resolve_account_number(
+        'token', 'A-CONFIGURED') == 'A-CONFIGURED'
+
+
+def test_graphql_surfaces_errors_from_http_200_response():
+    session = Mock()
+    session.post.return_value = FakeResponse({
+        'data': None,
+        'errors': [{'message': 'Unauthorized'}],
+    })
+    client = OctopusGraphQLClient(session, 'api-key', 12)
+
+    with pytest.raises(ValueError, match='Unauthorized'):
+        client.obtain_token()
+
+
+def test_graphql_retries_transient_post_with_retry_after():
+    session = Mock()
+    session.post.side_effect = [
+        FakeResponse(
+            {'errors': [{'message': 'busy'}]},
+            status_code=503,
+            headers={'Retry-After': '2'},
+        ),
+        FakeResponse({
+            'data': {
+                'obtainKrakenToken': {'token': 'jwt-token'},
+            },
+        }),
+    ]
+    sleeper = Mock()
+    client = OctopusGraphQLClient(
+        session,
+        'api-key',
+        12,
+        max_retries=1,
+        sleep_fn=sleeper,
+    )
+
+    assert client.obtain_token() == 'jwt-token'
+    assert session.post.call_count == 2
+    sleeper.assert_called_once_with(2.0)
+
+
+def test_graphql_retries_rate_limit_error_in_http_200():
+    session = Mock()
+    session.post.side_effect = [
+        FakeResponse({
+            'data': None,
+            'errors': [{
+                'message': 'Rate limited',
+                'extensions': {'errorCode': 'KT-CT-1199'},
+            }],
+        }),
+        FakeResponse({
+            'data': {
+                'viewer': {'accounts': [{'number': 'A-TEST'}]},
+            },
+        }),
+    ]
+    sleeper = Mock()
+    client = OctopusGraphQLClient(
+        session,
+        'api-key',
+        12,
+        max_retries=1,
+        sleep_fn=sleeper,
+    )
+
+    assert client.account_numbers('token') == ['A-TEST']
+    assert session.post.call_count == 2
+    assert sleeper.call_count == 1

@@ -6,6 +6,7 @@ from influxdb_client_3 import Point
 from octo2influx_core.influx import (
     make_stream_id,
     query_watermark,
+    sync_status_point,
     watermark_point,
     write_records,
 )
@@ -81,3 +82,17 @@ def test_write_records_commits_watermark_with_final_batch():
     ]
     assert [len(batch) for batch in batches] == [2, 2, 2]
     assert batches[-1][-1] is checkpoint
+
+
+def test_sync_status_publishes_active_cost_model():
+    point = sync_status_point(
+        'status',
+        successful_streams=3,
+        failed_streams=0,
+        duration_seconds=1.5,
+        cost_model='dispatch-aware-v1-test',
+    )
+
+    assert 'cost_model="dispatch-aware-v1-test"' in (
+        point.to_line_protocol()
+    )

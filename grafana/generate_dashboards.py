@@ -8,6 +8,7 @@ from textwrap import dedent
 
 DATASOURCE = {'type': 'influxdb', 'uid': '${datasource}'}
 PLUGIN_VERSION = '13.0.7'
+COST_MODEL = 'dispatch-aware-v1'
 
 COLORS = {
     'yellow': '#F2CC0C',
@@ -69,6 +70,7 @@ ELECTRICITY_USAGE_COST_TOTAL = sql('''
     SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
       AND "cost_type" = 'usage'
@@ -79,6 +81,7 @@ ELECTRICITY_STANDING_COST_TOTAL = sql('''
     SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
       AND "cost_type" = 'standing'
@@ -89,6 +92,7 @@ ELECTRICITY_TOTAL_COST = sql('''
     SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
       AND "cost_type" IN ('usage', 'standing')
@@ -99,6 +103,7 @@ GAS_KWH_TOTAL = sql('''
     SELECT COALESCE(SUM("billing_consumption_kwh"), 0.0) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${gas_tariff}'
       AND "cost_type" = 'usage'
@@ -109,6 +114,7 @@ GAS_TOTAL_COST = sql('''
     SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${gas_tariff}'
       AND "cost_type" IN ('usage', 'standing')
@@ -119,6 +125,7 @@ IMPORT_COST_TOTAL = sql('''
     SELECT COALESCE(SUM("value_gbp"), 0.0) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
       AND "cost_type" IN ('usage', 'standing')
@@ -135,6 +142,7 @@ EXPORT_REVENUE_TOTAL = sql('''
     ) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'export'
       AND "tariff_code" = '${electricity_export_tariff}'
       AND "cost_type" IN ('usage', 'standing')
@@ -155,6 +163,7 @@ NET_COST_TOTAL = sql('''
     ) AS "_value"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND (
         ("direction" = 'import'
           AND "tariff_code" = '${electricity_import_tariff}')
@@ -208,6 +217,7 @@ ELECTRICITY_FINANCIALS_INTERVAL = sql('''
       END) AS "Net usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND (
         ("direction" = 'import'
           AND "tariff_code" = '${electricity_import_tariff}')
@@ -227,6 +237,7 @@ ELECTRICITY_INTERVAL_COST = sql('''
       SUM("value_gbp") AS "Electricity usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
       AND "cost_type" = 'usage'
@@ -294,6 +305,7 @@ ELECTRICITY_COST_RATES = sql('''
       locf(avg("unit_rate_pence")) / 100.0 AS "Electricity £/kWh"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'electricity'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${electricity_import_tariff}'
       AND "cost_type" = 'usage'
@@ -309,6 +321,7 @@ GAS_COST_RATES = sql('''
       locf(avg("unit_rate_pence")) / 100.0 AS "Gas £/kWh"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${gas_tariff}'
       AND "cost_type" = 'usage'
@@ -434,6 +447,7 @@ GAS_KWH_RATE_INTERVAL = sql('''
       AVG("unit_rate_pence") / 100.0 AS "Gas £/kWh"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${gas_tariff}'
       AND "cost_type" = 'usage'
@@ -448,6 +462,7 @@ GAS_COST_INTERVAL = sql('''
       SUM("value_gbp") AS "Gas usage cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${gas_tariff}'
       AND "cost_type" = 'usage'
@@ -469,6 +484,7 @@ GAS_COST_TOTAL = sql('''
       COALESCE(SUM("value_gbp"), 0.0) AS "Total cost"
     FROM "${cost_measurement}"
     WHERE "energy_type" = 'gas'
+      AND "cost_model" = '${cost_model}'
       AND "direction" = 'import'
       AND "tariff_code" = '${gas_tariff}'
       AND $__timeFilter(time)
@@ -515,7 +531,8 @@ TARIFF_COMPARISON = sql('''
       END) AS "Standing charge",
       SUM("value_gbp") AS "Gross value"
     FROM "${cost_measurement}"
-    WHERE $__timeFilter(time)
+    WHERE "cost_model" = '${cost_model}'
+      AND $__timeFilter(time)
     GROUP BY "energy_type", "direction", "tariff_code"
     ORDER BY "energy_type", "direction", "Gross value"
 ''')
@@ -604,6 +621,21 @@ SELECTED_GAS_TARIFF_TIMELINE = sql('''
     UNION ALL
     SELECT time, "Gas tariff" FROM timeline
     ORDER BY time
+''')
+
+COMPLETED_DISPATCHES = sql('''
+    SELECT
+      time AS "Start",
+      "end" AS "End",
+      "duration_minutes" AS "Minutes",
+      "source" AS "Source",
+      "location" AS "Location",
+      "pricing_eligible" AS "Cheap-rate eligible"
+    FROM "${dispatch_measurement}"
+    WHERE "dispatch_type" = 'completed'
+      AND "account_id" = '${dispatch_account}'
+      AND $__timeFilter(time)
+    ORDER BY time DESC
 ''')
 
 
@@ -897,7 +929,10 @@ def variables(include_history: bool = False,
         textbox_variable('usage_measurement', 'octopus-usage'),
         textbox_variable('tariffs_measurement', 'octopus-tariffs'),
         textbox_variable('cost_measurement', 'octopus-costs'),
+        textbox_variable('dispatch_measurement', 'octopus-dispatches'),
         textbox_variable('status_measurement', 'octopus-sync-status'),
+        cost_model_variable(),
+        dispatch_account_variable(),
     ])
     if include_gas_unit:
         values.append({
@@ -953,10 +988,11 @@ def variables(include_history: bool = False,
 
 
 def textbox_variable(name: str, value: str,
-                     label: str | None = None) -> dict:
+                     label: str | None = None,
+                     hide: int = 0) -> dict:
     variable = {
         'current': {'selected': True, 'text': value, 'value': value},
-        'hide': 0,
+        'hide': hide,
         'name': name,
         'options': [{'selected': True, 'text': value, 'value': value}],
         'query': value,
@@ -999,6 +1035,67 @@ def tariff_variable(name: str, energy_type: str,
         'regex': '/(?<text>.+)#@#(?<value>.+)/g',
         'skipUrlSync': False,
         'sort': 1,
+        'type': 'query',
+    }
+
+
+def cost_model_variable() -> dict:
+    query = sql('''
+        SELECT "cost_model"
+        FROM "${status_measurement}"
+        WHERE "status" = 'success'
+          AND "cost_model" IS NOT NULL
+          AND time >= now() - INTERVAL '7 days'
+        ORDER BY time DESC
+        LIMIT 1
+    ''')
+    return {
+        'current': {
+            'selected': True,
+            'text': COST_MODEL,
+            'value': COST_MODEL,
+        },
+        'datasource': DATASOURCE.copy(),
+        'definition': query,
+        'hide': 2,
+        'includeAll': False,
+        'multi': False,
+        'name': 'cost_model',
+        'options': [],
+        'query': query,
+        'rawSql': query,
+        'refresh': 2,
+        'regex': '',
+        'skipUrlSync': False,
+        'sort': 0,
+        'type': 'query',
+    }
+
+
+def dispatch_account_variable() -> dict:
+    query = sql('''
+        SELECT "account_id"
+        FROM "${dispatch_measurement}"
+        WHERE "dispatch_type" IN ('poll', 'completed')
+          AND time >= now() - INTERVAL '7 days'
+        ORDER BY time DESC
+        LIMIT 1
+    ''')
+    return {
+        'current': {},
+        'datasource': DATASOURCE.copy(),
+        'definition': query,
+        'hide': 2,
+        'includeAll': False,
+        'multi': False,
+        'name': 'dispatch_account',
+        'options': [],
+        'query': query,
+        'rawSql': query,
+        'refresh': 2,
+        'regex': '',
+        'skipUrlSync': False,
+        'sort': 0,
         'type': 'query',
     }
 
@@ -1261,23 +1358,27 @@ def build_historical_dashboard() -> dict:
             12, 36, 12, 9, 'kwatth',
             draw_style='line', fill_opacity=10,
         ),
-        row(203, 'Gas History', 45),
+        row(205, 'Completed Smart-Charge Dispatches', 45),
+        table_panel(
+            12, 'Completed Dispatches',
+            COMPLETED_DISPATCHES, 0, 46, 24, 8),
+        row(203, 'Gas History', 54),
         timeseries(
             9,
             'Gas Usage by Interval (${gas_unit})',
             [target(GAS_USAGE_INTERVAL)],
-            0, 46, 12, 8, 'short',
+            0, 55, 12, 8, 'short',
             draw_style='bars', fill_opacity=70,
         ),
         timeseries(
             10, 'Gas Usage Cost by Interval',
             [target(GAS_COST_INTERVAL)],
-            12, 46, 12, 8, 'currencyGBP',
+            12, 55, 12, 8, 'currencyGBP',
             draw_style='bars', fill_opacity=60,
         ),
-        row(204, 'Ingestion Health', 54),
+        row(204, 'Ingestion Health', 63),
         stat(
-            11, 'Latest Synchronization', LATEST_SYNC, 0, 55, 24,
+            11, 'Latest Synchronization', LATEST_SYNC, 0, 64, 24,
             COLORS['green'], 'short', height=5),
     ]
     for panel in panels:

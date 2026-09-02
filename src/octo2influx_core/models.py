@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -54,6 +54,7 @@ class TariffConfig:
     rate_types: tuple[str, ...] = ()
     payment_method: str | None = None
     materialize_costs: bool = True
+    use_completed_dispatches: bool = False
     agreement_from: datetime | None = None
     agreement_to: datetime | None = None
     agreement_windows: tuple[
@@ -202,6 +203,54 @@ class RateBook:
         if without_payment_method:
             return without_payment_method[-1]
         return candidates[-1] if len(candidates) == 1 else None
+
+    def cheapest_rate_near(
+            self,
+            price_type: str,
+            timestamp: datetime,
+            payment_method: str | None = None,
+            maximum_distance: timedelta = timedelta(days=1),
+    ) -> Rate | None:
+        rates = list(self.rates.get(price_type, ()))
+        if payment_method is not None:
+            rates = [
+                rate for rate in rates
+                if rate.payment_method == payment_method
+            ]
+        else:
+            without_payment_method = [
+                rate for rate in rates
+                if rate.payment_method is None
+            ]
+            if without_payment_method:
+                rates = without_payment_method
+
+        def distance(rate: Rate) -> timedelta:
+            if rate.contains(timestamp):
+                return timedelta(0)
+            if (
+                    rate.valid_from is not None
+                    and timestamp < rate.valid_from):
+                return rate.valid_from - timestamp
+            if rate.valid_to is not None and timestamp >= rate.valid_to:
+                return timestamp - rate.valid_to
+            return timedelta.max
+
+        candidates = []
+        for rate in rates:
+            rate_distance = distance(rate)
+            if rate_distance <= maximum_distance:
+                candidates.append((rate, rate_distance))
+        if not candidates:
+            return None
+        return min(
+            candidates,
+            key=lambda item: (
+                item[0].value_inc_vat,
+                item[1],
+                item[0].value_exc_vat,
+            ),
+        )[0]
 
 
 @dataclass(frozen=True)

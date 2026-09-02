@@ -11,6 +11,7 @@ influx_database: "octo2influx"
 influx_tariff_measurement: "octopus-tariffs"
 influx_usage_measurement: "octopus-usage"
 influx_cost_measurement: "octopus-costs"
+influx_dispatch_measurement: "octopus-dispatches"
 influx_watermark_measurement: "octopus-watermarks"
 influx_status_measurement: "octopus-sync-status"
 # Use http://influx:8181 when running the supplied Docker Compose stack.
@@ -73,6 +74,11 @@ tariffs:
     description: "Example electricity import tariff; replace with your tariff."
     # Set false to ingest rates without calculating comparison costs.
     materialize_costs: true
+    # Enable only for an Intelligent Octopus Go electricity import tariff.
+    # Raw completed dispatches are stored; only smart-charge records with at
+    # least ten minutes in a half-hour conservatively override the tariff rate.
+    # The API key must expose exactly one account, or set account_number above.
+    use_completed_dispatches: false
   - energy_type: "electricity"
     direction: "export"
     product_code: "FLUX-EXPORT-23-02-14"

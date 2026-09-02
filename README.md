@@ -89,6 +89,37 @@ non-contiguous periods using the same tariff code.
 Octopus does not expose whether a discovered gas meter returns `m3` or `kWh`, so
 set `discovered_gas_unit` correctly.
 
+### Intelligent Octopus Go completed dispatches
+
+The public tariff feed includes the guaranteed overnight cheap period, but it
+cannot include account-specific smart-charge slots. Enable completed-dispatch
+pricing on the applicable electricity import tariff:
+
+```yaml
+tariffs:
+  - energy_type: electricity
+    direction: import
+    product_code: "YOUR-INTELLIGENT-PRODUCT"
+    tariff_code: "E-1R-YOUR-INTELLIGENT-PRODUCT-C"
+    full_name: "Intelligent Octopus Go"
+    display_name: "Intelligent Octopus Go"
+    description: ""
+    use_completed_dispatches: true
+```
+
+The existing Octopus API key obtains a short-lived Kraken GraphQL token.
+If the key exposes one account, its number is discovered without storing it in
+InfluxDB. Configure `account_number` when the key exposes multiple accounts.
+
+Raw completed dispatches are persisted in `octopus-dispatches`. Only records
+whose source is `smart-charge`, with at least ten minutes overlapping a billing
+half-hour, can apply the nearby off-peak tariff rate. `bump-charge` and
+unknown-source records are retained but do not change cost. This is a
+conservative estimate: Kraken does not expose the supplier's final billing
+eligibility marker, and its completed-dispatch query has limited history.
+Capture begins when the feature is enabled; older personalised slots may not be
+recoverable.
+
 ### Explicit configuration
 
 Without `account_number`, keep one entry per meter:
@@ -168,6 +199,7 @@ The default database contains:
 | `octopus-usage` | Raw consumption/export. Legacy unit-named fields remain; `value` and `unit` provide a normalized representation. |
 | `octopus-tariffs` | Raw tariff rates, normalized values, units, and source validity metadata. |
 | `octopus-costs` | Materialised usage cost/revenue and daily standing charges for each compatible tariff comparison. |
+| `octopus-dispatches` | Raw completed Intelligent Go dispatches, including source, location, duration, and conservative pricing eligibility. |
 | `octopus-watermarks` | Explicit source-coverage checkpoint for every raw and derived stream. |
 | `octopus-sync-status` | Latest run status, duration, and successful/failed stream counts. |
 
@@ -180,6 +212,11 @@ InfluxDB deduplicates identical timestamp/tag points, so replaying a page after 
 failure is safe. A checkpoint is committed only with the final write of a
 successful page. If one meter, tariff, or derived-cost stream fails, independent
 streams continue; the process exits non-zero after recording a failure summary.
+
+Cost points are tagged with cost model `dispatch-aware-v1`. Enabling this
+version forces a bounded replay into a distinct series identity, so corrected
+dispatch-aware costs do not collide with legacy points. Dashboards filter to the
+current model.
 
 ## Backfills and migration
 
