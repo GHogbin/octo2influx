@@ -213,12 +213,18 @@ failure is safe. A checkpoint is committed only with the final write of a
 successful page. If one meter, tariff, or derived-cost stream fails, independent
 streams continue; the process exits non-zero after recording a failure summary.
 
-Cost points are tagged with cost model `dispatch-aware-v1`. Enabling this
-version forces a bounded replay into a distinct series identity, so corrected
-dispatch-aware costs do not collide with legacy points. Dashboards filter to the
-current model.
+Cost points are tagged with a versioned model such as
+`dispatch-aware-v1-<fingerprint>`. Enabling this model forces a bounded replay
+into a distinct series identity, so corrected dispatch-aware costs do not
+collide with legacy points. Dashboards select the model from the latest
+successful synchronization.
 
 ## Backfills and migration
+
+After migrating a Docker deployment from InfluxDB 3 Core to Enterprise, use the
+[Enterprise cutover cleanup runbook](ENTERPRISE-CLEANUP.md) to retain a rollback
+window, archive the detached Core volume, and remove only verified obsolete
+assets.
 
 By default, new streams look back `from_max_days_ago` days and then resume from
 their checkpoints. Force a historical range with:
