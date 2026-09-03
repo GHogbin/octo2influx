@@ -113,6 +113,7 @@ jobs:
             --volume "$GITHUB_WORKSPACE/grafana/provisioning:/etc/grafana/provisioning:ro" \
             --volume "$GITHUB_WORKSPACE/grafana/dashboard.json:/var/lib/grafana/dashboards/octo2influx.json:ro" \
             --volume "$GITHUB_WORKSPACE/grafana/historical-dashboard.json:/var/lib/grafana/dashboards/octo2influx-history.json:ro" \
+            --volume "$GITHUB_WORKSPACE/grafana/solar-planning-dashboard.json:/var/lib/grafana/dashboards/octo2influx-solar-planning.json:ro" \
             grafana/grafana:13.0.7
 
           ready=false
@@ -138,6 +139,7 @@ jobs:
           expected = {
               "octo2influx — Overview",
               "octo2influx — Historical Analysis",
+              "octo2influx — Solar Planning",
           }
           missing = expected - titles
           assert not missing, f"Missing provisioned dashboards: {missing}"

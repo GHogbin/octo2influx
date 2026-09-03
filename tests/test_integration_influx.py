@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from influxdb_client_3 import InfluxDBClient3, Point
 import pytest
@@ -59,7 +59,10 @@ def query_scalar(client, sql, column):
 
 
 def dashboard_queries():
-    for filename in ('dashboard.json', 'historical-dashboard.json'):
+    for filename in (
+            'dashboard.json',
+            'historical-dashboard.json',
+            'solar-planning-dashboard.json'):
         dashboard = json.loads(
             (ROOT / 'grafana' / filename).read_text(encoding='utf-8')
         )
@@ -85,6 +88,11 @@ def render_dashboard_query(query):
         '${account_timezone}': 'Europe/London',
         '${gas_unit}': 'm3',
         '${chart_interval}': '30 minutes',
+        '${specific_yield}': '900',
+        '${panel_watts}': '425',
+        '${target_offset}': '100',
+        '${panel_area}': '2.0',
+        '${solar_meter_point}': 'dashboard-import',
     }
     for variable, value in replacements.items():
         query = query.replace(variable, value)
@@ -115,7 +123,9 @@ def dashboard_fixture_points():
         .field('kWh', 2.0)
         .field('value', 2.0)
         .field('unit', 'kWh')
-        .time(jan_1_midpoint),
+        .time(jan_1 + timedelta(minutes=15 + 30 * index))
+        for index in range(48)
+    ] + [
         Point('octopus-usage')
         .tag('energy_type', 'electricity')
         .tag('direction', 'export')
@@ -369,10 +379,23 @@ def test_all_dashboard_panel_queries_execute_on_influxdb3():
         failures = []
         for filename, title, query in dashboard_queries():
             try:
-                client.query(
+                table = read_query_result(client.query(
                     query=render_dashboard_query(query),
                     language='sql',
-                )
+                ))
+                if (
+                        filename == 'solar-planning-dashboard.json'
+                        and title
+                        == 'Consumption and Solar Sizing Summary'):
+                    assert table.num_rows == 1
+                    assert (
+                        table.column('Complete days')[0].as_py()
+                        == 1
+                    )
+                    assert (
+                        table.column('Observed consumption')[0].as_py()
+                        == pytest.approx(96.0)
+                    )
             except Exception as error:
                 failures.append(
                     f'{filename} / {title}: {error}')

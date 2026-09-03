@@ -638,6 +638,269 @@ COMPLETED_DISPATCHES = sql('''
     ORDER BY time DESC
 ''')
 
+SOLAR_COMPLETE_DAYS_CTES = sql('''
+    daily_quality AS (
+      SELECT
+        date_trunc(
+          'day',
+          tz(time, '${account_timezone}')
+        ) AS day,
+        SUM("kWh") AS kwh,
+        COUNT(*) AS intervals,
+        MIN(time) AS first_interval,
+        MAX(time) AS last_interval
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "meter_point" = '${solar_meter_point}'
+        AND $__timeFilter(time)
+      GROUP BY 1
+    ),
+    complete_days AS (
+      SELECT day, kwh
+      FROM daily_quality
+      WHERE intervals = (
+          (
+            date_part('epoch', last_interval)
+            - date_part('epoch', first_interval)
+          ) / 1800
+        ) + 1
+        AND date_part(
+          'hour',
+          tz(first_interval, '${account_timezone}')
+        ) = 0
+        AND date_part(
+          'minute',
+          tz(first_interval, '${account_timezone}')
+        ) = 15
+        AND date_part(
+          'hour',
+          tz(last_interval, '${account_timezone}')
+        ) = 23
+        AND date_part(
+          'minute',
+          tz(last_interval, '${account_timezone}')
+        ) = 45
+    )
+''')
+
+SOLAR_PLANNING_SUMMARY = (
+    'WITH\n'
+    + SOLAR_COMPLETE_DAYS_CTES
+    + ',\n'
+    + sql('''
+    consumption AS (
+      SELECT
+        COUNT(*) AS complete_days,
+        SUM(kwh) AS observed_kwh,
+        AVG(kwh) AS average_daily_kwh,
+        AVG(kwh) * 365.2425 AS annualised_kwh
+      FROM complete_days
+    ),
+    daytime AS (
+      SELECT
+        SUM(usage."kWh") AS total_kwh,
+        SUM(CASE
+          WHEN date_part(
+            'hour',
+            tz(usage.time, '${account_timezone}')
+          ) >= 8
+           AND date_part(
+            'hour',
+            tz(usage.time, '${account_timezone}')
+          ) < 18
+            THEN usage."kWh"
+          ELSE 0.0
+        END) AS daytime_kwh
+      FROM "${usage_measurement}" AS usage
+      INNER JOIN complete_days
+        ON date_trunc(
+          'day',
+          tz(usage.time, '${account_timezone}')
+        ) = complete_days.day
+      WHERE usage."energy_type" = 'electricity'
+        AND usage."direction" = 'import'
+        AND usage."meter_point" = '${solar_meter_point}'
+        AND $__timeFilter(time)
+    ),
+    interval_quality AS (
+      SELECT
+        time,
+        SUM("kWh") AS kwh,
+        COUNT(*) AS records
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "meter_point" = '${solar_meter_point}'
+        AND $__timeFilter(time)
+      GROUP BY time
+    ),
+    half_hour_load AS (
+      SELECT time, kwh
+      FROM interval_quality
+      WHERE records = 1
+    ),
+    hour_quality AS (
+      SELECT
+        date_bin(INTERVAL '1 hour', time) AS hour_start,
+        SUM("kWh") AS kwh,
+        COUNT(*) AS intervals
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "meter_point" = '${solar_meter_point}'
+        AND $__timeFilter(time)
+      GROUP BY hour_start
+    ),
+    hourly_load AS (
+      SELECT hour_start, kwh
+      FROM hour_quality
+      WHERE intervals = 2
+    ),
+    scenario AS (
+      SELECT
+        consumption.*,
+        CASE
+          WHEN daytime.total_kwh > 0
+            THEN daytime.daytime_kwh / daytime.total_kwh * 100.0
+          ELSE 0.0
+        END AS daytime_share,
+        (SELECT MAX(kwh) * 2.0 FROM half_hour_load)
+          AS peak_half_hour_kw,
+        (SELECT MAX(kwh) FROM hourly_load) AS peak_hour_kw,
+        consumption.annualised_kwh
+          * ${target_offset} / 100.0
+          / ${specific_yield} AS required_kwp
+      FROM consumption
+      CROSS JOIN daytime
+    ),
+    sized AS (
+      SELECT
+        scenario.*,
+        CEIL(
+          required_kwp * 1000.0 / ${panel_watts}
+        ) AS panels
+      FROM scenario
+    )
+    SELECT
+      complete_days AS "Complete days",
+      observed_kwh AS "Observed consumption",
+      average_daily_kwh AS "Average daily consumption",
+      annualised_kwh AS "Annualised consumption",
+      daytime_share AS "08:00-18:00 consumption",
+      peak_half_hour_kw AS "Peak half-hour demand",
+      peak_hour_kw AS "Peak hourly demand",
+      required_kwp AS "Equivalent system size",
+      panels AS "Suggested panels",
+      panels * ${panel_watts} / 1000.0 AS "Installed panel capacity",
+      panels * ${panel_area} AS "Approximate roof area",
+      panels * ${panel_watts} / 1000.0
+        * ${specific_yield} AS "Estimated annual generation"
+    FROM sized
+    ''')
+)
+
+SOLAR_DAILY_CONSUMPTION = (
+    'WITH\n'
+    + SOLAR_COMPLETE_DAYS_CTES
+    + '\n'
+    + sql('''
+    SELECT day AS time, kwh AS "Daily consumption"
+    FROM complete_days
+    ORDER BY day
+    ''')
+)
+
+SOLAR_MONTHLY_CONSUMPTION = (
+    'WITH\n'
+    + SOLAR_COMPLETE_DAYS_CTES
+    + '\n'
+    + sql('''
+    SELECT
+      date_trunc('month', day) AS time,
+      SUM(kwh) AS "Observed monthly consumption",
+      AVG(kwh) AS "Average daily consumption"
+    FROM complete_days
+    GROUP BY 1
+    ORDER BY 1
+    ''')
+)
+
+SOLAR_YEARLY_CONSUMPTION = (
+    'WITH\n'
+    + SOLAR_COMPLETE_DAYS_CTES
+    + '\n'
+    + sql('''
+    SELECT
+      CAST(date_part('year', day) AS BIGINT) AS "Year",
+      COUNT(*) AS "Complete days",
+      SUM(kwh) AS "Observed consumption",
+      AVG(kwh) * 365.2425 AS "Annualised consumption",
+      CASE
+        WHEN COUNT(*) >= 347 THEN 'High - near full year'
+        WHEN COUNT(*) >= 180 THEN 'Medium - partial year'
+        ELSE 'Low - under six months'
+      END AS "Estimate confidence"
+    FROM complete_days
+    GROUP BY 1
+    ORDER BY 1
+    ''')
+)
+
+SOLAR_HOURLY_REQUIREMENTS = sql('''
+    WITH hour_quality AS (
+      SELECT
+        date_bin(INTERVAL '1 hour', time) AS hour_start,
+        date_part(
+          'hour',
+          tz(time, '${account_timezone}')
+        ) AS local_hour,
+        SUM("kWh") AS kwh,
+        COUNT(*) AS intervals
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "meter_point" = '${solar_meter_point}'
+        AND $__timeFilter(time)
+      GROUP BY hour_start, local_hour
+    ),
+    complete_hours AS (
+      SELECT local_hour, kwh
+      FROM hour_quality
+      WHERE intervals = 2
+    )
+    SELECT
+      local_hour AS "Hour",
+      AVG(kwh) AS "Average hourly requirement",
+      MAX(kwh) AS "Peak hourly requirement"
+    FROM complete_hours
+    GROUP BY local_hour
+    ORDER BY local_hour
+''')
+
+SOLAR_PEAK_HALF_HOURS = sql('''
+    WITH interval_quality AS (
+      SELECT
+        time,
+        SUM("kWh") AS kwh,
+        COUNT(*) AS records
+      FROM "${usage_measurement}"
+      WHERE "energy_type" = 'electricity'
+        AND "direction" = 'import'
+        AND "meter_point" = '${solar_meter_point}'
+        AND $__timeFilter(time)
+      GROUP BY time
+    )
+    SELECT
+      time AS "Interval",
+      kwh AS "Energy",
+      kwh * 2.0 AS "Average demand"
+    FROM interval_quality
+    WHERE records = 1
+    ORDER BY "Average demand" DESC
+    LIMIT 20
+''')
+
 
 def target(query: str, ref_id: str = 'A',
            output_format: str = 'time_series') -> dict:
@@ -664,7 +927,8 @@ def row(panel_id: int, title: str, y: int) -> dict:
 
 def stat(panel_id: int, title: str, query: str, x: int, y: int,
          width: int, color: str, unit: str,
-         height: int = 4, time_from: str | None = None) -> dict:
+         height: int = 4, time_from: str | None = None,
+         overrides: list[dict] | None = None) -> dict:
     panel = {
         'datasource': DATASOURCE.copy(),
         'fieldConfig': {
@@ -678,7 +942,7 @@ def stat(panel_id: int, title: str, query: str, x: int, y: int,
                 },
                 'unit': unit,
             },
-            'overrides': [],
+            'overrides': overrides or [],
         },
         'gridPos': {'h': height, 'w': width, 'x': x, 'y': y},
         'id': panel_id,
@@ -809,8 +1073,10 @@ def bar_chart(panel_id: int, title: str, query: str,
 
 
 def table_panel(panel_id: int, title: str, query: str,
-                x: int, y: int, width: int, height: int) -> dict:
-    return {
+                x: int, y: int, width: int, height: int,
+                overrides: list[dict] | None = None,
+                description: str = '') -> dict:
+    panel = {
         'datasource': DATASOURCE.copy(),
         'fieldConfig': {
             'defaults': {
@@ -826,7 +1092,7 @@ def table_panel(panel_id: int, title: str, query: str,
                     'steps': [{'color': 'green', 'value': None}],
                 },
             },
-            'overrides': [],
+            'overrides': overrides or [],
         },
         'gridPos': {'h': height, 'w': width, 'x': x, 'y': y},
         'id': panel_id,
@@ -840,6 +1106,26 @@ def table_panel(panel_id: int, title: str, query: str,
         'targets': [target(query, output_format='table')],
         'title': title,
         'type': 'table',
+    }
+    if description:
+        panel['description'] = description
+    return panel
+
+
+def text_panel(panel_id: int, title: str, content: str,
+               x: int, y: int, width: int, height: int) -> dict:
+    return {
+        'gridPos': {'h': height, 'w': width, 'x': x, 'y': y},
+        'id': panel_id,
+        'options': {
+            'code': {'language': 'plaintext', 'showLineNumbers': False},
+            'content': content,
+            'mode': 'markdown',
+        },
+        'pluginVersion': PLUGIN_VERSION,
+        'title': title,
+        'transparent': True,
+        'type': 'text',
     }
 
 
@@ -1004,6 +1290,111 @@ def textbox_variable(name: str, value: str,
     return variable
 
 
+def custom_variable(name: str, label: str,
+                    values: list[str], current: str) -> dict:
+    return {
+        'current': {
+            'selected': True,
+            'text': current,
+            'value': current,
+        },
+        'hide': 0,
+        'label': label,
+        'name': name,
+        'options': [
+            {
+                'selected': value == current,
+                'text': value,
+                'value': value,
+            }
+            for value in values
+        ],
+        'query': ','.join(values),
+        'skipUrlSync': False,
+        'type': 'custom',
+    }
+
+
+def solar_meter_variable() -> dict:
+    query = sql('''
+        SELECT DISTINCT (
+          'Supply ending ' || right("meter_point", 4)
+          || '#@#' || "meter_point"
+        ) AS "display_value"
+        FROM "${usage_measurement}"
+        WHERE "energy_type" = 'electricity'
+          AND "direction" = 'import'
+          AND time >= now() - INTERVAL '30 days'
+        ORDER BY "display_value"
+    ''')
+    return {
+        'current': {},
+        'datasource': DATASOURCE.copy(),
+        'definition': query,
+        'hide': 0,
+        'includeAll': False,
+        'label': 'Electricity supply',
+        'multi': False,
+        'name': 'solar_meter_point',
+        'options': [],
+        'query': query,
+        'rawSql': query,
+        'refresh': 2,
+        'regex': '/(?<text>.+)#@#(?<value>.+)/g',
+        'skipUrlSync': False,
+        'sort': 1,
+        'type': 'query',
+    }
+
+
+def solar_variables() -> list[dict]:
+    standard = variables(
+        include_export=False,
+        include_gas_unit=False,
+        include_chart_interval=False,
+    )
+    selected = [
+        item for item in standard
+        if item['name'] in {
+            'datasource',
+            'account_timezone',
+            'usage_measurement',
+        }
+    ]
+    next(
+        item for item in selected
+        if item['name'] == 'usage_measurement'
+    )['hide'] = 2
+    return [
+        *selected,
+        solar_meter_variable(),
+        custom_variable(
+            'specific_yield',
+            'Specific yield (kWh/kWp/year)',
+            ['800', '900', '1025'],
+            '900',
+        ),
+        custom_variable(
+            'panel_watts',
+            'Panel power (W, placeholder)',
+            ['375', '425', '450'],
+            '425',
+        ),
+        custom_variable(
+            'target_offset',
+            'Target annual energy offset (%)',
+            ['50', '75', '100'],
+            '100',
+        ),
+        custom_variable(
+            'panel_area',
+            'Roof area per panel (m²)',
+            ['1.8', '2.0', '2.2'],
+            '2.0',
+        ),
+    ]
+
+
 def tariff_variable(name: str, energy_type: str,
                     direction: str) -> dict:
     query = sql(f'''
@@ -1105,7 +1496,11 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                    include_history: bool = False,
                    include_export: bool = True,
                    include_gas_unit: bool = True,
-                   include_chart_interval: bool = False) -> dict:
+                   include_chart_interval: bool = False,
+                   dashboard_variables: list[dict] | None = None,
+                   description: str | None = None,
+                   time_options: list[str] | None = None,
+                   tags: list[str] | None = None) -> dict:
     return {
         'annotations': {
             'list': [{
@@ -1124,7 +1519,7 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
                 'type': 'dashboard',
             }],
         },
-        'description': (
+        'description': description or (
             'Core-safe live view. Raw-data ranges are bounded because '
             'InfluxDB 3 Core does not compact Parquet files.'
         ),
@@ -1136,13 +1531,17 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
         'panels': panels,
         'refresh': '1h',
         'schemaVersion': 39,
-        'tags': ['octopus-energy', 'octo2influx'],
+        'tags': tags or ['octopus-energy', 'octo2influx'],
         'templating': {
-            'list': variables(
-                include_history,
-                include_export,
-                include_gas_unit,
-                include_chart_interval,
+            'list': (
+                dashboard_variables
+                if dashboard_variables is not None
+                else variables(
+                    include_history,
+                    include_export,
+                    include_gas_unit,
+                    include_chart_interval,
+                )
             ),
         },
         'time': {'from': default_from, 'to': 'now-18h'},
@@ -1150,7 +1549,7 @@ def base_dashboard(title: str, uid: str, panels: list[dict],
             'refresh_intervals': [
                 '5m', '15m', '30m', '1h', '2h', '1d',
             ],
-            'time_options': [
+            'time_options': time_options or [
                 '24h', '2d', '3d', '7d',
             ],
         },
@@ -1394,11 +1793,217 @@ def build_historical_dashboard() -> dict:
     )
 
 
+def build_solar_planning_dashboard() -> dict:
+    summary_overrides = [
+        {
+            'matcher': {'id': 'byName', 'options': name},
+            'properties': properties,
+        }
+        for name, properties in {
+            'Complete days': [
+                {'id': 'decimals', 'value': 0},
+            ],
+            'Observed consumption': [
+                {'id': 'unit', 'value': 'kwatth'},
+            ],
+            'Average daily consumption': [
+                {'id': 'unit', 'value': 'kwatth'},
+            ],
+            'Annualised consumption': [
+                {'id': 'unit', 'value': 'kwatth'},
+            ],
+            '08:00-18:00 consumption': [
+                {'id': 'unit', 'value': 'percent'},
+            ],
+            'Peak half-hour demand': [
+                {'id': 'unit', 'value': 'kwatt'},
+            ],
+            'Peak hourly demand': [
+                {'id': 'unit', 'value': 'kwatt'},
+            ],
+            'Equivalent system size': [
+                {'id': 'unit', 'value': 'suffix:kWp'},
+            ],
+            'Suggested panels': [
+                {'id': 'decimals', 'value': 0},
+            ],
+            'Installed panel capacity': [
+                {'id': 'unit', 'value': 'suffix:kWp'},
+            ],
+            'Approximate roof area': [
+                {'id': 'unit', 'value': 'suffix:m²'},
+            ],
+            'Estimated annual generation': [
+                {'id': 'unit', 'value': 'kwatth'},
+            ],
+        }.items()
+    ]
+    monthly_overrides = [{
+        'matcher': {
+            'id': 'byName',
+            'options': 'Average daily consumption',
+        },
+        'properties': [
+            {'id': 'custom.axisPlacement', 'value': 'right'},
+            {'id': 'custom.drawStyle', 'value': 'line'},
+            {'id': 'custom.fillOpacity', 'value': 0},
+            {'id': 'custom.lineWidth', 'value': 2},
+        ],
+    }]
+    yearly_overrides = [
+        {
+            'matcher': {
+                'id': 'byName',
+                'options': 'Complete days',
+            },
+            'properties': [
+                {'id': 'decimals', 'value': 0},
+            ],
+        },
+        {
+            'matcher': {
+                'id': 'byName',
+                'options': 'Observed consumption',
+            },
+            'properties': [
+                {'id': 'unit', 'value': 'kwatth'},
+            ],
+        },
+        {
+            'matcher': {
+                'id': 'byName',
+                'options': 'Annualised consumption',
+            },
+            'properties': [
+                {'id': 'unit', 'value': 'kwatth'},
+            ],
+        },
+    ]
+    peak_overrides = [
+        {
+            'matcher': {'id': 'byName', 'options': 'Energy'},
+            'properties': [{'id': 'unit', 'value': 'kwatth'}],
+        },
+        {
+            'matcher': {
+                'id': 'byName',
+                'options': 'Average demand',
+            },
+            'properties': [{'id': 'unit', 'value': 'kwatt'}],
+        },
+    ]
+    guidance = '''
+**Indicative consumption-based scenario—not an installation quote.**
+
+- Annualised consumption is the average of complete smart-meter days multiplied
+  by 365.2425. With under six months of data, treat it as low confidence.
+- The calculation covers the selected electricity supply. Select another supply
+  separately rather than silently combining distinct MPANs.
+- Equivalent system size = annualised consumption × target offset ÷ selected
+  specific yield. Panel count rounds this up using the selected panel wattage.
+- The default **900 kWh/kWp/year** is a UK placeholder. Replace it with a
+  [PVGIS](https://re.jrc.ec.europa.eu/pvg_tools/en/) or installer estimate for
+  your location, pitch, orientation, shading, mounting and system losses.
+- Annual energy equivalence does not predict self-consumption, export, bills or
+  battery behaviour. Peak demand informs inverter/battery power screening; it
+  does not determine panel count.
+- Obtain an MCS-certified site assessment before purchase.
+'''.strip()
+    panels = [
+        text_panel(
+            300, 'Solar planning assumptions',
+            guidance, 0, 0, 24, 6),
+        row(301, 'Consumption and System Scenario', 6),
+        stat(
+            1,
+            'Consumption and Solar Sizing Summary',
+            SOLAR_PLANNING_SUMMARY,
+            0, 7, 24,
+            COLORS['green'],
+            'short',
+            height=8,
+            overrides=summary_overrides,
+        ),
+        row(302, 'Daily and Monthly Consumption', 15),
+        timeseries(
+            2,
+            'Complete-Day Electricity Consumption',
+            [target(SOLAR_DAILY_CONSUMPTION)],
+            0, 16, 12, 10, 'kwatth',
+            draw_style='bars',
+            fill_opacity=65,
+            description=(
+                'Only days with 46–50 half-hour readings per electricity '
+                'meter point are included, allowing for daylight-saving days.'
+            ),
+        ),
+        timeseries(
+            3,
+            'Monthly Consumption and Daily Average',
+            [target(SOLAR_MONTHLY_CONSUMPTION)],
+            12, 16, 12, 10, 'kwatth',
+            draw_style='bars',
+            fill_opacity=55,
+            overrides=monthly_overrides,
+            description=(
+                'Monthly totals include only complete days. Partial months '
+                'remain partial; the daily-average line is comparable.'
+            ),
+        ),
+        row(303, 'Yearly Consumption Estimate', 26),
+        table_panel(
+            4,
+            'Observed and Annualised Consumption by Calendar Year',
+            SOLAR_YEARLY_CONSUMPTION,
+            0, 27, 24, 8,
+            overrides=yearly_overrides,
+            description=(
+                'Annualised values extrapolate average complete-day use. '
+                'A full seasonal year is preferred.'
+            ),
+        ),
+        row(304, 'Hourly Requirements', 35),
+        bar_chart(
+            5,
+            'Average and Peak Requirement by Hour of Day',
+            SOLAR_HOURLY_REQUIREMENTS,
+            0, 36, 12, 10, 'kwatt',
+        ),
+        table_panel(
+            6,
+            'Highest Half-Hour Demand Periods',
+            SOLAR_PEAK_HALF_HOURS,
+            12, 36, 12, 10,
+            overrides=peak_overrides,
+            description=(
+                'Average demand is interval kWh × 2. It is not an '
+                'instantaneous surge measurement.'
+            ),
+        ),
+    ]
+    return base_dashboard(
+        'octo2influx — Solar Planning',
+        'octo2influx-solar-planning',
+        panels,
+        'now-120d',
+        dashboard_variables=solar_variables(),
+        description=(
+            'Consumption-led solar PV planning with editable yield, panel '
+            'power, target offset and roof-area assumptions.'
+        ),
+        time_options=['30d', '90d', '120d', '180d', '365d'],
+        tags=['octopus-energy', 'octo2influx', 'solar-planning'],
+    )
+
+
 OUTPUTS = {
     Path(__file__).with_name('dashboard.json'): build_overview_dashboard,
     Path(__file__).with_name(
         'historical-dashboard.json'
     ): build_historical_dashboard,
+    Path(__file__).with_name(
+        'solar-planning-dashboard.json'
+    ): build_solar_planning_dashboard,
 }
 
 

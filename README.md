@@ -276,6 +276,11 @@ Docker Compose provisions:
 - [`grafana/historical-dashboard.json`](grafana/historical-dashboard.json), a
   recent analysis view with tariff timelines, per-meter history, tariff
   comparison, and cumulative totals;
+- [`grafana/solar-planning-dashboard.json`](grafana/solar-planning-dashboard.json),
+  a consumption-led solar PV planning view with complete-day daily/monthly/year
+  analysis, hourly and half-hour demand, daytime-use share, annualised demand,
+  and editable specific-yield, panel-power, target-offset and roof-area
+  assumptions;
 - variables for datasource, measurements, account timezone, and comparison
   tariffs. The generated defaults select Intelligent Octopus Go for electricity
   and Flexible Octopus for gas;

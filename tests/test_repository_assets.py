@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD_PATHS = [
     ROOT / 'grafana' / 'dashboard.json',
     ROOT / 'grafana' / 'historical-dashboard.json',
+    ROOT / 'grafana' / 'solar-planning-dashboard.json',
 ]
 
 
@@ -66,6 +67,8 @@ def test_compose_defaults_are_local_and_authenticated():
     assert any('dashboard.json:' in value for value in grafana_volumes)
     assert any('historical-dashboard.json:' in value
                for value in grafana_volumes)
+    assert any('solar-planning-dashboard.json:' in value
+               for value in grafana_volumes)
     assert services['octo2influx']['volumes'][0].endswith(':ro')
     assert services['octo2influx']['environment']['RETRY_FREQ'] == '5m'
     assert services['octo2influx']['depends_on']['influx']['condition'] == (
@@ -102,6 +105,24 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
     assert dashboard_text.count('${datasource}') > 0
     assert 'avg(\\"kWh\\")' not in dashboard_text
     assert '/ 48.0' not in dashboard_text
+    variables = {
+        item['name']: item for item in dashboard['templating']['list']
+    }
+
+    if dashboard['uid'] == 'octo2influx-solar-planning':
+        assert variables['datasource']['type'] == 'datasource'
+        assert variables['usage_measurement']['query'] == 'octopus-usage'
+        assert variables['usage_measurement']['hide'] == 2
+        assert variables['solar_meter_point']['type'] == 'query'
+        assert 'Supply ending ' in variables['solar_meter_point']['query']
+        assert dashboard['timepicker']['time_options'] == [
+            '30d', '90d', '120d', '180d', '365d',
+        ]
+        assert not any(
+            'FROM "${cost_measurement}"' in query
+            for query in queries
+        )
+        return
 
     cost_queries = [
         query for query in queries
@@ -114,9 +135,6 @@ def test_dashboard_is_portable_and_uses_safe_time_queries(
         for query in cost_queries
     )
 
-    variables = {
-        item['name']: item for item in dashboard['templating']['list']
-    }
     assert variables['datasource']['type'] == 'datasource'
     assert variables['cost_measurement']['query'] == 'octopus-costs'
     assert variables['dispatch_measurement']['query'] == (
@@ -358,3 +376,87 @@ def test_historical_dashboard_has_analysis_views():
     assert '"dispatch_type" = \'completed\'' in dispatch_query
     assert '"account_id" = \'${dispatch_account}\'' in dispatch_query
     assert '"pricing_eligible" AS "Cheap-rate eligible"' in dispatch_query
+
+
+def test_solar_dashboard_has_consumption_and_sizing_views():
+    dashboard = json.loads(
+        DASHBOARD_PATHS[2].read_text(encoding='utf-8')
+    )
+    panels = {
+        panel['title']: panel for panel in dashboard['panels']
+    }
+    variables = {
+        item['name']: item for item in dashboard['templating']['list']
+    }
+
+    assert dashboard['uid'] == 'octo2influx-solar-planning'
+    assert dashboard['time']['from'] == 'now-120d'
+    assert {
+        'Solar planning assumptions',
+        'Consumption and Solar Sizing Summary',
+        'Complete-Day Electricity Consumption',
+        'Monthly Consumption and Daily Average',
+        'Observed and Annualised Consumption by Calendar Year',
+        'Average and Peak Requirement by Hour of Day',
+        'Highest Half-Hour Demand Periods',
+    }.issubset(panels)
+
+    assert variables['specific_yield']['current']['value'] == '900'
+    assert variables['specific_yield']['query'] == '800,900,1025'
+    assert variables['panel_watts']['current']['value'] == '425'
+    assert variables['target_offset']['current']['value'] == '100'
+    assert variables['panel_area']['current']['value'] == '2.0'
+    assert variables['solar_meter_point']['label'] == 'Electricity supply'
+
+    guidance = panels['Solar planning assumptions']['options']['content']
+    assert 'not an installation quote' in guidance
+    assert 'PVGIS' in guidance
+    assert 'MCS-certified' in guidance
+
+    summary = panels[
+        'Consumption and Solar Sizing Summary'
+    ]['targets'][0]['rawSql']
+    assert 'AVG(kwh) * 365.2425 AS annualised_kwh' in summary
+    assert '* ${target_offset} / 100.0' in summary
+    assert '/ ${specific_yield} AS required_kwp' in summary
+    assert 'CEIL(' in summary
+    assert 'required_kwp * 1000.0 / ${panel_watts}' in summary
+    assert 'panels * ${panel_area}' in summary
+
+    daily = panels[
+        'Complete-Day Electricity Consumption'
+    ]['targets'][0]['rawSql']
+    assert '"meter_point" = \'${solar_meter_point}\'' in daily
+    assert "date_part('epoch', last_interval)" in daily
+    assert "date_part('epoch', first_interval)" in daily
+    assert "tz(first_interval, '${account_timezone}')" in daily
+    assert "tz(last_interval, '${account_timezone}')" in daily
+    assert ') = 15' in daily
+    assert ') = 45' in daily
+
+    monthly = panels[
+        'Monthly Consumption and Daily Average'
+    ]['targets'][0]['rawSql']
+    assert "date_trunc('month', day)" in monthly
+
+    yearly = panels[
+        'Observed and Annualised Consumption by Calendar Year'
+    ]['targets'][0]['rawSql']
+    assert 'Low - under six months' in yearly
+    assert 'Medium - partial year' in yearly
+    assert 'High - near full year' in yearly
+
+    hourly = panels[
+        'Average and Peak Requirement by Hour of Day'
+    ]['targets'][0]['rawSql']
+    assert "date_bin(INTERVAL '1 hour', time)" in hourly
+    assert '"meter_point" = \'${solar_meter_point}\'' in hourly
+    assert 'WHERE intervals = 2' in hourly
+
+    peaks = panels[
+        'Highest Half-Hour Demand Periods'
+    ]['targets'][0]['rawSql']
+    assert '"meter_point" = \'${solar_meter_point}\'' in peaks
+    assert 'WHERE records = 1' in peaks
+    assert 'kwh * 2.0 AS "Average demand"' in peaks
+    assert 'LIMIT 20' in peaks
